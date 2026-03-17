@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signal Hunter v3.0</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0A0E14; --bg2: #0F1419; --bg3: #1A1F2E; --card: #141820;
+  --glass: rgba(20,24,32,0.85); --txt: #E6E6E6; --txt2: #8B9AB5; --muted: #5A6578;
+  --gold: #C9A85C; --amber: #FF8C00; --red: #FF4444; --green: #10B981;
+  --blue: #3B82F6; --purple: #8B5CF6; --cyan: #06B6D4;
+  --bdr: rgba(255,255,255,0.06); --glow: rgba(201,168,92,0.3);
+  --r: 8px; --fd: 'Lora',serif; --fu: 'Inter',sans-serif; --fm: 'JetBrains Mono',monospace;
+}
+[data-theme="light"] {
+  --bg: #F5F5F0; --bg2: #EAEAE5; --bg3: #DDDDD8; --card: #FFFFFF;
+  --glass: rgba(255,255,255,0.9); --txt: #1A1A1A; --txt2: #555; --muted: #888;
+  --bdr: rgba(0,0,0,0.08);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--fu);font-weight:300;background:var(--bg);color:var(--txt);overflow-x:hidden;height:100vh}
+.shell{display:grid;grid-template-columns:56px 1fr;grid-template-rows:48px 1fr;height:100vh}
+
+/* Header */
+.hdr{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:var(--bg2);border-bottom:1px solid var(--bdr);z-index:100}
+.hdr-l{display:flex;align-items:center;gap:14px}
+.logo{font-family:var(--fd);font-size:16px;font-weight:700;color:var(--gold)}
+.logo-sub{font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase}
+.storm-ind{display:flex;align-items:center;gap:6px;padding:4px 12px;background:rgba(255,140,0,.12);border:1px solid rgba(255,140,0,.3);border-radius:20px;font-size:11px;color:var(--amber);cursor:pointer;animation:sp 2s ease-in-out infinite}
+@keyframes sp{0%,100%{opacity:.8}50%{opacity:1}}
+.storm-dot{width:6px;height:6px;background:var(--amber);border-radius:50%;animation:bl 1s ease-in-out infinite}
+@keyframes bl{0%,100%{opacity:1}50%{opacity:.3}}
+.hdr-r{display:flex;align-items:center;gap:12px}
+.cred{padding:4px 10px;background:var(--bg3);border-radius:20px;font-size:11px;color:var(--txt2);font-family:var(--fm)}
+.thm{width:32px;height:32px;border:1px solid var(--bdr);border-radius:50%;background:0;color:var(--txt2);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center}
+.thm:hover{border-color:var(--gold);color:var(--gold)}
+
+/* Left Rail */
+.rail{background:var(--bg2);border-right:1px solid var(--bdr);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px;overflow-y:auto}
+.chip{width:40px;height:40px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--muted);cursor:pointer;border:1px solid transparent;position:relative}
+.chip:hover,.chip.on{background:var(--bg3);color:var(--txt);border-color:var(--bdr)}
+.chip.on::after{content:'';position:absolute;left:-1px;top:8px;bottom:8px;width:2px;background:var(--gold);border-radius:1px}
+.sep{width:24px;height:1px;background:var(--bdr);margin:4px 0}
+
+/* Main */
+.main{overflow:hidden;position:relative;display:flex;flex-direction:column}
+
+/* Top 5 bar */
+.t5{padding:10px 20px;background:var(--bg2);border-bottom:1px solid var(--bdr);display:flex;gap:12px;overflow-x:auto;flex-shrink:0}
+.t5-lbl{font-family:var(--fm);font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--gold);white-space:nowrap;display:flex;align-items:center;gap:6px;padding-right:8px;border-right:1px solid var(--bdr)}
+.t5c{display:flex;align-items:center;gap:10px;padding:6px 14px;background:var(--card);border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;white-space:nowrap;min-width:240px;transition:all .2s}
+.t5c:hover{border-color:var(--glow);box-shadow:0 0 20px rgba(201,168,92,.15)}
+.t5s{font-family:var(--fm);font-size:20px;font-weight:600;min-width:36px;text-align:center}
+.t5s.hot{color:var(--red)}.t5s.warm{color:var(--amber)}.t5s.cool{color:var(--blue)}
+.t5i{display:flex;flex-direction:column;gap:2px}
+.t5n{font-size:13px;font-weight:500}.t5p{font-size:10px;color:var(--muted);max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.t5a{margin-left:auto;padding:3px 8px;font-size:9px;font-weight:500;background:var(--gold);color:var(--bg);border:0;border-radius:4px;cursor:pointer;text-transform:uppercase;letter-spacing:.5px}
+
+/* Radar */
+.radar-wrap{flex:1;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.radar-wrap::before{content:'';position:absolute;inset:0;background-image:radial-gradient(1px 1px at 10% 20%,rgba(255,255,255,.04) 0%,transparent 100%),radial-gradient(1px 1px at 50% 80%,rgba(255,255,255,.03) 0%,transparent 100%),radial-gradient(1px 1px at 90% 40%,rgba(255,255,255,.04) 0%,transparent 100%);animation:pd 30s linear infinite}
+@keyframes pd{0%{transform:translateY(0)}100%{transform:translateY(-20px)}}
+.radar{position:relative;width:min(60vw,60vh);height:min(60vw,60vh)}
+.ring{position:absolute;border:1px solid;border-radius:50%}
+.ring.o{inset:0;border-color:rgba(59,130,246,.15);background:rgba(59,130,246,.06)}
+.ring.m{inset:18%;border-color:rgba(255,140,0,.2);background:rgba(255,140,0,.08)}
+.ring.i{inset:40%;border-color:rgba(255,68,68,.25);background:rgba(255,68,68,.1);animation:ip 3s ease-in-out infinite}
+@keyframes ip{0%,100%{box-shadow:inset 0 0 30px rgba(255,68,68,.05)}50%{box-shadow:inset 0 0 50px rgba(255,68,68,.1)}}
+.rlbl{position:absolute;font-family:var(--fm);font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase}
+.rlbl.ri{bottom:calc(40% - 18px);right:calc(50% + 12px)}
+.rlbl.rm{bottom:calc(18% - 18px);right:calc(50% + 12px)}
+.rlbl.ro{bottom:-18px;right:calc(50% + 12px)}
+.sweep{position:absolute;inset:0;border-radius:50%;animation:sw 8s linear infinite}
+.sweep::after{content:'';position:absolute;top:50%;left:50%;width:50%;height:2px;background:linear-gradient(to right,transparent,rgba(201,168,92,.4));transform-origin:left center}
+@keyframes sw{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+.ctr{position:absolute;top:50%;left:50%;width:8px;height:8px;background:var(--gold);border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 12px rgba(201,168,92,.5);z-index:10}
+
+/* Blips */
+.blip{position:absolute;border-radius:50%;cursor:pointer;transition:transform .3s;z-index:20}
+.blip:hover{transform:scale(1.4);z-index:30}
+.blip.hot{background:var(--red);box-shadow:0 0 16px rgba(255,68,68,.6);animation:bph 1.5s ease-in-out infinite}
+.blip.warm{background:var(--amber);box-shadow:0 0 12px rgba(255,140,0,.4);animation:bpw 2s ease-in-out infinite}
+.blip.cool{background:var(--blue);box-shadow:0 0 8px rgba(59,130,246,.3)}
+.blip.cold{background:var(--muted);opacity:.5}
+@keyframes bph{0%,100%{box-shadow:0 0 12px rgba(255,68,68,.5)}50%{box-shadow:0 0 24px rgba(255,68,68,.8)}}
+@keyframes bpw{0%,100%{box-shadow:0 0 8px rgba(255,140,0,.3)}50%{box-shadow:0 0 18px rgba(255,140,0,.6)}}
+.blip .tt{display:none;position:absolute;bottom:calc(100% + 10px);left:50%;transform:translateX(-50%);width:220px;padding:12px;background:var(--glass);backdrop-filter:blur(16px);border:1px solid var(--bdr);border-radius:var(--r);z-index:50}
+.blip:hover .tt{display:block}
+.tt-co{font-size:13px;font-weight:500;margin-bottom:4px}
+.tt-sc{font-family:var(--fm);font-size:11px;margin-bottom:6px}
+.tt-pa{font-size:11px;color:var(--txt2);line-height:1.4;margin-bottom:8px}
+.tt-btn{display:inline-block;padding:3px 10px;font-size:10px;font-weight:500;background:var(--gold);color:var(--bg);border-radius:4px;text-transform:uppercase;letter-spacing:.5px;cursor:pointer}
+
+/* Legend, stats */
+.legend{position:absolute;bottom:20px;left:20px;display:flex;flex-direction:column;gap:6px}
+.leg-i{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--muted)}
+.leg-d{width:8px;height:8px;border-radius:50%}
+.stats{position:absolute;top:20px;right:20px;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+.stat{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--glass);backdrop-filter:blur(8px);border:1px solid var(--bdr);border-radius:var(--r)}
+.sv{font-family:var(--fm);font-size:18px;font-weight:600}
+.sl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+
+/* Nav tabs */
+.nav{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:4px;padding:4px;background:var(--glass);backdrop-filter:blur(8px);border:1px solid var(--bdr);border-radius:24px;z-index:80}
+.nav button{padding:6px 14px;font-size:11px;border:0;border-radius:20px;background:0;color:var(--muted);cursor:pointer;font-family:var(--fu)}
+.nav button.on{background:var(--gold);color:var(--bg);font-weight:500}
+.nav button:hover:not(.on){color:var(--txt)}
+
+/* Lead panel */
+.lpan{position:absolute;top:0;right:0;width:480px;height:100%;background:var(--bg2);border-left:1px solid var(--bdr);box-shadow:-4px 0 24px rgba(0,0,0,.3);z-index:60;overflow-y:auto;transform:translateX(100%);transition:transform .3s}
+.lpan.open{transform:translateX(0)}
+.lph{padding:16px 20px;border-bottom:1px solid var(--bdr);display:flex;justify-content:space-between;align-items:flex-start}
+.lp-name{font-family:var(--fd);font-size:20px;font-weight:600;margin-bottom:4px}
+.lp-ind{font-size:10px;padding:2px 8px;border-radius:4px;background:var(--bg3);color:var(--txt2)}
+.lp-close{width:28px;height:28px;border:1px solid var(--bdr);border-radius:50%;background:0;color:var(--muted);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center}
+
+.mom-block{padding:20px;text-align:center;border-bottom:1px solid var(--bdr)}
+.mom-big{font-family:var(--fm);font-size:56px;font-weight:700;line-height:1}
+.mom-big.hot{color:var(--red);text-shadow:0 0 30px rgba(255,68,68,.4)}
+.mom-big.warm{color:var(--amber)}
+.mom-lbl{font-size:10px;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-top:4px}
+.mom-act{display:inline-block;margin-top:8px;padding:3px 12px;border-radius:4px;font-size:11px;font-weight:600;letter-spacing:.5px}
+.mom-act.act-today{background:rgba(255,68,68,.15);color:var(--red);animation:ap 2s ease-in-out infinite}
+.mom-act.act-week{background:rgba(255,140,0,.15);color:var(--amber)}
+.mom-act.nurture{background:rgba(59,130,246,.15);color:var(--blue)}
+@keyframes ap{0%,100%{background:rgba(255,68,68,.15)}50%{background:rgba(255,68,68,.25)}}
+
+.vel-row{display:flex;align-items:center;justify-content:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--bdr)}
+.vel-row .spark{width:120px;height:28px}
+
+.sect{padding:16px 20px;border-bottom:1px solid var(--bdr)}
+.sect h4{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:10px}
+
+.sbar{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.sbar-l{font-size:10px;color:var(--txt2);width:130px;text-align:right}
+.sbar-t{flex:1;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden}
+.sbar-f{height:100%;border-radius:2px}
+.sbar-f.hi{background:var(--green)}.sbar-f.mi{background:var(--amber)}.sbar-f.lo{background:var(--red)}
+.sbar-v{font-family:var(--fm);font-size:10px;color:var(--muted);width:28px}
+
+.stk{display:flex;flex-direction:column-reverse;gap:3px}
+.stk-l{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:4px;font-size:11px}
+.stk-l.reddit{background:rgba(255,69,0,.1);border-left:3px solid #FF4500;color:#FF7043}
+.stk-l.linkedin{background:rgba(0,119,181,.1);border-left:3px solid #0077B5;color:#4DA8DA}
+.stk-l.jobad{background:rgba(139,92,246,.1);border-left:3px solid var(--purple);color:#A78BFA}
+.stk-l.funding{background:rgba(16,185,129,.1);border-left:3px solid var(--green);color:#6EE7B7}
+.stk-l.darkweb{background:rgba(255,68,68,.08);border-left:3px solid var(--red);color:#FF6B6B}
+.stk-l.competitor{background:rgba(255,140,0,.1);border-left:3px solid var(--amber);color:#FFB347}
+.stk-l.regulatory{background:rgba(6,182,212,.1);border-left:3px solid var(--cyan);color:#67E8F9}
+.stk-l.podcast{background:rgba(201,168,92,.1);border-left:3px solid var(--gold);color:var(--gold)}
+.stk-l.ghost{background:rgba(90,101,120,.1);border-left:3px solid var(--muted);color:var(--txt2)}
+.stk-tm{margin-left:auto;font-size:9px;color:var(--muted);font-family:var(--fm)}
+
+.pain-txt{font-family:var(--fd);font-size:14px;font-style:italic;line-height:1.6;color:var(--txt2);padding:12px 16px;border-left:2px solid var(--gold);background:rgba(201,168,92,.04);border-radius:0 var(--r) var(--r) 0}
+.comm-tag{display:inline-block;margin-top:10px;padding:3px 10px;font-size:10px;border-radius:4px;background:var(--bg3);color:var(--cyan);font-family:var(--fm)}
+.cloud{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;padding:12px;background:var(--card);border-radius:var(--r)}
+.cw{padding:3px 8px;border-radius:4px;background:var(--bg3);color:var(--txt2);cursor:pointer;transition:all .2s}
+.cw:hover{background:rgba(201,168,92,.15);color:var(--gold)}
+.cw.xl{font-size:18px;font-weight:600;color:var(--txt)}.cw.lg{font-size:15px;font-weight:500}.cw.md{font-size:12px}.cw.sm{font-size:10px;color:var(--muted)}
+
+.path-chain{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.pn{padding:4px 10px;border-radius:20px;font-size:11px}
+.pn.you{background:var(--gold);color:var(--bg);font-weight:500}
+.pn.mut{background:var(--bg3);border:1px solid var(--green);color:var(--green)}
+.pn.tgt{background:var(--bg3);border:1px solid var(--blue);color:var(--blue)}
+.pa{color:var(--muted);font-size:12px}
+
+.com-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.com-card{padding:10px;background:var(--card);border:1px solid var(--bdr);border-radius:var(--r)}
+.com-role{font-size:9px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.com-role.buyer{color:var(--green)}.com-role.tech{color:var(--blue)}.com-role.champion{color:var(--purple)}.com-role.gatekeeper{color:var(--amber)}
+.com-name{font-size:12px;font-weight:500}.com-title{font-size:10px;color:var(--muted)}
+
+.tl{position:relative;padding-left:20px}
+.tl::before{content:'';position:absolute;left:6px;top:0;bottom:0;width:1px;background:var(--bdr)}
+.tl-node{position:relative;padding:8px 0 16px 16px}
+.tl-node::before{content:'';position:absolute;left:-17px;top:12px;width:8px;height:8px;border-radius:50%;border:2px solid}
+.tl-node:first-child::before{box-shadow:0 0 8px;animation:ng 2s ease-in-out infinite}
+@keyframes ng{0%,100%{box-shadow:0 0 6px}50%{box-shadow:0 0 14px}}
+.tl-node.reddit::before{border-color:#FF4500;color:#FF4500}
+.tl-node.linkedin::before{border-color:#0077B5;color:#0077B5}
+.tl-node.jobad::before{border-color:var(--purple);color:var(--purple)}
+.tl-node.funding::before{border-color:var(--green);color:var(--green)}
+.tl-node.ghost::before{border-color:var(--muted);color:var(--muted);border-style:dashed}
+.tl-node.predicted::before{border-color:var(--gold);color:var(--gold);border-style:dashed}
+.tl-node.darkweb::before{border-color:var(--red);color:var(--red)}
+.tl-node.competitor::before{border-color:var(--amber);color:var(--amber)}
+.tl-node.regulatory::before{border-color:var(--cyan);color:var(--cyan)}
+.tl-node.podcast::before{border-color:var(--gold);color:var(--gold)}
+.tl-dt{font-family:var(--fm);font-size:9px;color:var(--muted)}
+.tl-ti{font-size:12px;margin:2px 0}
+.tl-de{font-size:10px;color:var(--muted)}
+
+.out-tabs{display:flex;gap:4px;margin-bottom:12px}
+.out-tab{padding:5px 12px;font-size:11px;border:1px solid var(--bdr);border-radius:var(--r);background:0;color:var(--muted);cursor:pointer}
+.out-tab.on{background:var(--bg3);color:var(--txt);border-color:var(--gold)}
+.out-draft{font-size:12px;line-height:1.6;color:var(--txt2);padding:12px;background:var(--card);border-radius:var(--r);border:1px solid var(--bdr)}
+.out-draft .hi{color:var(--gold);font-weight:500}
+
+.roi-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.roi-item{padding:10px;background:var(--card);border-radius:var(--r);border:1px solid var(--bdr);text-align:center}
+.roi-v{font-family:var(--fm);font-size:18px;font-weight:600;color:var(--green)}
+.roi-l{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+
+.lp-actions{padding:16px 20px;display:flex;gap:10px}
+.btn{flex:1;padding:10px;border:0;border-radius:var(--r);font-size:12px;font-weight:500;cursor:pointer;text-transform:uppercase;letter-spacing:.5px}
+.btn-act{background:var(--green);color:#fff}
+.btn-pass{background:var(--bg3);color:var(--txt2);border:1px solid var(--bdr)}
+
+/* War room banner */
+.wr-ban{display:none;position:fixed;top:48px;left:56px;right:0;padding:16px 24px;background:linear-gradient(135deg,rgba(255,140,0,.12),rgba(255,68,68,.08));border-bottom:2px solid rgba(255,140,0,.3);z-index:201;align-items:center;gap:16px}
+.wr-ban.on{display:flex}
+.wr-sev{font-family:var(--fm);font-size:32px;font-weight:700;color:var(--amber);text-shadow:0 0 20px rgba(255,140,0,.4)}
+.wr-info{flex:1}
+.wr-title{font-family:var(--fd);font-size:16px;font-weight:600;color:var(--amber)}
+.wr-det{font-size:12px;color:var(--txt2);margin-top:2px}
+.wr-win{font-family:var(--fm);font-size:12px;color:var(--red);text-align:right}
+.wr-wl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+.wr-dis{padding:6px 14px;border:1px solid rgba(255,140,0,.3);border-radius:var(--r);background:0;color:var(--amber);font-size:11px;cursor:pointer}
+
+/* Privacy panel */
+.priv{display:none;position:fixed;top:48px;left:56px;right:0;bottom:0;background:var(--bg);z-index:150;overflow-y:auto;padding:24px}
+.priv.on{display:block}
+.priv-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
+.priv-t{font-family:var(--fd);font-size:22px;font-weight:600}
+.priv-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:24px}
+.priv-c{padding:16px;background:var(--card);border:1px solid var(--bdr);border-radius:var(--r)}
+.priv-c h5{font-size:12px;font-weight:500;margin-bottom:8px}
+.priv-c p{font-size:11px;color:var(--muted);line-height:1.5}
+.cls-tbl{width:100%;border-collapse:collapse;margin-top:8px}
+.cls-tbl th,.cls-tbl td{padding:6px 10px;text-align:left;font-size:11px;border-bottom:1px solid var(--bdr)}
+.cls-tbl th{color:var(--muted);text-transform:uppercase;font-size:10px}
+.cb{padding:2px 6px;border-radius:3px;font-size:9px;font-weight:500;text-transform:uppercase}
+.cb.pub{background:rgba(16,185,129,.15);color:var(--green)}
+.cb.inf{background:rgba(59,130,246,.15);color:var(--blue)}
+.cb.dw{background:rgba(255,68,68,.15);color:var(--red)}
+.cb.per{background:rgba(139,92,246,.15);color:var(--purple)}
+.al-row{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--bdr);font-size:11px}
+.al-tm{font-family:var(--fm);font-size:10px;color:var(--muted);min-width:100px}
+.er-form{display:flex;gap:8px;margin-top:12px}
+.er-input{flex:1;padding:8px 12px;border:1px solid var(--bdr);border-radius:var(--r);background:var(--bg3);color:var(--txt);font-size:12px;font-family:var(--fu)}
+.er-btn{padding:8px 16px;border:1px solid rgba(255,68,68,.3);border-radius:var(--r);background:rgba(255,68,68,.1);color:var(--red);font-size:11px;cursor:pointer;font-weight:500}
+
+/* Swipe view */
+.swipe{display:none;position:fixed;top:48px;left:56px;right:0;bottom:0;background:var(--bg);z-index:140;align-items:center;justify-content:center}
+.swipe.on{display:flex}
+.sw-card{width:480px;max-height:calc(100vh - 130px);overflow-y:auto;background:var(--card);border:1px solid var(--bdr);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.3)}
+.sw-top{padding:24px;text-align:center;border-bottom:1px solid var(--bdr)}
+.sw-score{font-family:var(--fm);font-size:64px;font-weight:700;color:var(--red);text-shadow:0 0 40px rgba(255,68,68,.3);animation:sb 2s ease-in-out infinite}
+@keyframes sb{0%,100%{text-shadow:0 0 30px rgba(255,68,68,.3)}50%{text-shadow:0 0 50px rgba(255,68,68,.5)}}
+.sw-co{font-family:var(--fd);font-size:20px;font-weight:600;margin-top:8px}
+.sw-pain{padding:20px 24px;border-bottom:1px solid var(--bdr);font-family:var(--fd);font-size:15px;font-style:italic;line-height:1.6;color:var(--txt2)}
+.sw-why{padding:16px 24px;border-bottom:1px solid var(--bdr)}
+.sw-why h4{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px}
+.wy-i{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--txt2);padding:3px 0}
+.wy-d{width:4px;height:4px;border-radius:50%;background:var(--gold)}
+.sw-acts{padding:16px 24px;display:flex;gap:12px}
+.sw-btn{flex:1;padding:14px;border:0;border-radius:var(--r);font-size:14px;font-weight:600;cursor:pointer;text-transform:uppercase;letter-spacing:1px}
+.sw-act-btn{background:var(--green);color:#fff}
+.sw-pass-btn{background:var(--bg3);color:var(--muted);border:1px solid var(--bdr)}
+.sw-hint{text-align:center;padding:8px;font-size:10px;color:var(--muted);font-family:var(--fm)}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- Header -->
+<header class="hdr">
+  <div class="hdr-l">
+    <div><div class="logo">Signal Hunter</div><div class="logo-sub">Timing Intelligence Engine</div></div>
+  </div>
+  <div id="stormHeader" style="display:none">
+    <div class="storm-ind" onclick="toggleWR()"><span class="storm-dot"></span><span id="stormText"></span></div>
+  </div>
+  <div class="hdr-r">
+    <div class="cred" id="credBadge">...</div>
+    <button class="thm" onclick="toggleTheme()" title="Toggle theme">&#9790;</button>
+  </div>
+</header>
+
+<!-- Left Rail -->
+<nav class="rail">
+  <div class="chip on" title="All" data-filter="">&#9673;</div>
+  <div class="chip" title="Cyber" data-filter="Cybersecurity">&#9888;</div>
+  <div class="chip" title="AI/DT" data-filter="Technology">&#9881;</div>
+  <div class="chip" title="Legal" data-filter="Legal">&#9878;</div>
+  <div class="chip" title="Finance" data-filter="Finance">&#9830;</div>
+  <div class="chip" title="Construction" data-filter="Construction">&#9964;</div>
+  <div class="chip" title="Healthcare" data-filter="Healthcare">&#10010;</div>
+  <div class="sep"></div>
+  <div class="chip" title="Privacy" onclick="showView('privacy')">&#128274;</div>
+  <div class="chip" title="Competitors" data-filter="">&#9876;</div>
+</nav>
+
+<!-- Main -->
+<div class="main">
+  <div class="t5" id="top5Bar"></div>
+
+  <div class="radar-wrap" id="radarView">
+    <div class="radar" id="radarField">
+      <div class="ring o"></div><div class="ring m"></div><div class="ring i"></div>
+      <span class="rlbl ri">0-30d</span><span class="rlbl rm">31-90d</span><span class="rlbl ro">90+</span>
+      <div class="sweep"></div><div class="ctr"></div>
+    </div>
+    <div class="legend">
+      <div class="leg-i"><span class="leg-d" style="background:var(--red);box-shadow:0 0 6px rgba(255,68,68,.5)"></span>Accelerating (Act today)</div>
+      <div class="leg-i"><span class="leg-d" style="background:var(--amber)"></span>Steady (Act this week)</div>
+      <div class="leg-i"><span class="leg-d" style="background:var(--blue)"></span>Nurture (Pipeline)</div>
+      <div class="leg-i"><span class="leg-d" style="background:var(--muted);opacity:.5"></span>Monitor</div>
+    </div>
+    <div class="stats" id="radarStats"></div>
+    <div class="nav">
+      <button class="on" onclick="showView('radar')">Radar</button>
+      <button onclick="showView('swipe')">Daily Review</button>
+      <button onclick="showView('privacy')">Privacy</button>
+    </div>
+  </div>
+
+  <!-- Lead Panel -->
+  <div class="lpan" id="leadPanel"></div>
+
+  <!-- War Room -->
+  <div class="wr-ban" id="wrBanner"></div>
+
+  <!-- Privacy -->
+  <div class="priv" id="privPanel"></div>
+
+  <!-- Swipe -->
+  <div class="swipe" id="swipeView"></div>
+</div>
+</div>
+
+<script>
+const API = '/signal/api';
+let allBlips = [], currentLead = null, top5Data = [], stormData = [], activeFilter = '';
+
+/* ── Fetch helpers ────────────────────────────────────── */
+async function api(path) {
+  const r = await fetch(API + path);
+  return r.ok ? r.json() : null;
+}
+async function apiPost(path, body) {
+  const r = await fetch(API + path, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  return r.ok ? r.json() : null;
+}
+
+/* ── Theme ────────────────────────────────────────────── */
+function toggleTheme() {
+  const h = document.documentElement, b = document.querySelector('.thm');
+  if (h.dataset.theme === 'dark') { h.dataset.theme = 'light'; b.innerHTML = '&#9788;'; }
+  else { h.dataset.theme = 'dark'; b.innerHTML = '&#9790;'; }
+}
+
+/* ── Init ─────────────────────────────────────────────── */
+async function init() {
+  await Promise.all([loadRadar(), loadTop5(), loadStorms(), loadCredits()]);
+  setupRailFilters();
+}
+
+/* ── Radar ────────────────────────────────────────────── */
+async function loadRadar() {
+  const url = activeFilter ? `/radar?industry=${encodeURIComponent(activeFilter)}` : '/radar';
+  const data = await api(url);
+  if (!data) return;
+  allBlips = data.blips || [];
+  renderBlips();
+  renderStats(data);
+}
+
+function renderBlips() {
+  const field = document.getElementById('radarField');
+  field.querySelectorAll('.blip').forEach(b => b.remove());
+  const w = field.offsetWidth, h = field.offsetHeight;
+  const cx = w/2, cy = h/2;
+
+  allBlips.forEach((b, i) => {
+    const el = document.createElement('div');
+    el.className = `blip ${b.heat}`;
+    const sz = Math.max(8, Math.min(22, b.deal_value / 8000));
+    el.style.width = sz + 'px';
+    el.style.height = sz + 'px';
+
+    let rMin, rMax;
+    if (b.ring === 'inner') { rMin = 0.05; rMax = 0.28; }
+    else if (b.ring === 'mid') { rMin = 0.2; rMax = 0.38; }
+    else { rMin = 0.38; rMax = 0.48; }
+    const angle = (i * 137.5 + b.momentum * 3) * Math.PI / 180;
+    const dist = (rMin + Math.random() * (rMax - rMin)) * Math.min(w, h);
+    const x = cx + Math.cos(angle) * dist - sz/2;
+    const y = cy + Math.sin(angle) * dist - sz/2;
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+
+    const pain = b.pain_summary || '';
+    el.innerHTML = `<div class="tt"><div class="tt-co">${esc(b.company)}</div><div class="tt-sc">Momentum: <strong style="color:${heatColor(b.heat)}">${b.momentum}</strong> | Fit: ${b.fit}</div><div class="tt-pa">${esc(pain)}</div><span class="tt-btn" onclick="event.stopPropagation();openLead(${b.id})">Hunt</span></div>`;
+    el.onclick = () => openLead(b.id);
+    field.appendChild(el);
+  });
+}
+
+function renderStats(data) {
+  const hot = allBlips.filter(b => b.heat === 'hot').length;
+  const storms = (data.active_storms || []).length;
+  document.getElementById('radarStats').innerHTML = `
+    <div class="stat"><div><div class="sv">${allBlips.length}</div><div class="sl">Active Leads</div></div></div>
+    <div class="stat"><div><div class="sv" style="color:var(--red)">${hot}</div><div class="sl">Act Today</div></div></div>
+    <div class="stat"><div><div class="sv" style="color:var(--amber)">${storms}</div><div class="sl">Active Storms</div></div></div>`;
+}
+
+function heatColor(h) { return h==='hot'?'#FF4444':h==='warm'?'#FF8C00':h==='cool'?'#3B82F6':'#5A6578'; }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+/* ── Top 5 ────────────────────────────────────────────── */
+async function loadTop5() {
+  const data = await api('/today');
+  if (!data) return;
+  top5Data = data.top5 || [];
+  const bar = document.getElementById('top5Bar');
+  let html = `<div class="t5-lbl">&#9733; Today's Top 5</div>`;
+  top5Data.forEach(t => {
+    const cls = t.momentum >= 80 ? 'hot' : t.momentum >= 60 ? 'warm' : 'cool';
+    html += `<div class="t5c" onclick="openLead(${t.id})"><div class="t5s ${cls}">${t.momentum}</div><div class="t5i"><div class="t5n">${esc(t.company)}</div><div class="t5p">${esc(t.pain_summary)}</div></div><button class="t5a" onclick="event.stopPropagation();actLead(${t.id})">Send Draft A</button></div>`;
+  });
+  bar.innerHTML = html;
+}
+
+/* ── Storms ───────────────────────────────────────────── */
+async function loadStorms() {
+  const data = await api('/storms/active');
+  if (!data) return;
+  stormData = data.storms || [];
+  const hdr = document.getElementById('stormHeader');
+  if (stormData.length > 0) {
+    const s = stormData[0];
+    hdr.style.display = '';
+    document.getElementById('stormText').textContent = `STORM: ${s.event_name} — Severity ${s.severity}`;
+    const ban = document.getElementById('wrBanner');
+    ban.innerHTML = `<div class="wr-sev">${s.severity}</div><div class="wr-info"><div class="wr-title">INDUSTRY STORM: ${esc(s.event_name)}</div><div class="wr-det">${esc(s.description||'')}</div></div><div class="wr-win"><div>Window closes in <strong>${s.days_remaining||'?'} days</strong></div><div class="wr-wl">Compliance deadline</div></div><button class="wr-dis" onclick="toggleWR()">Dismiss</button>`;
+  }
+}
+
+function toggleWR() { document.getElementById('wrBanner').classList.toggle('on'); }
+
+/* ── Credits ──────────────────────────────────────────── */
+async function loadCredits() {
+  const data = await api('/credits/balance');
+  if (data) document.getElementById('credBadge').textContent = `${data.balance} credits (${data.plan})`;
+}
+
+/* ── Lead Panel ───────────────────────────────────────── */
+async function openLead(id) {
+  const data = await api(`/leads/${id}`);
+  if (!data) return;
+  currentLead = data;
+  const p = document.getElementById('leadPanel');
+  const ms = data.momentum_score || 0;
+  const hcls = ms >= 80 ? 'hot' : ms >= 60 ? 'warm' : '';
+  const actLbl = ms >= 80 ? 'ACT TODAY' : ms >= 60 ? 'ACT THIS WEEK' : ms >= 40 ? 'NURTURE' : 'MONITOR';
+  const actCls = ms >= 80 ? 'act-today' : ms >= 60 ? 'act-week' : 'nurture';
+  const signals = data.signals || [];
+  const committee = data.buying_committee || [];
+  const velocity = data.velocity_history || [];
+
+  let sparkPts = '';
+  if (velocity.length > 1) {
+    const maxV = Math.max(...velocity.map(v=>v.signal_score||0), 0.01);
+    sparkPts = velocity.map((v,i) => `${i*120/(velocity.length-1)},${28-((v.signal_score||0)/maxV)*26}`).join(' ');
+  }
+
+  // Signal stack
+  let stackHtml = '';
+  signals.forEach(s => {
+    const cls = signalClass(s.signal_type, s.source);
+    const ago = timeAgo(s.detected_at);
+    stackHtml += `<div class="stk-l ${cls}">${esc(s.title||s.signal_type)} <span class="stk-tm">${ago}</span></div>`;
+  });
+
+  // Pain cloud words
+  let cloudHtml = '';
+  if (data.pain_fingerprint_json) {
+    const words = typeof data.pain_fingerprint_json === 'string' ? JSON.parse(data.pain_fingerprint_json) : data.pain_fingerprint_json;
+    if (Array.isArray(words)) words.forEach((w,i) => {
+      const sz = i < 2 ? 'xl' : i < 4 ? 'lg' : i < 7 ? 'md' : 'sm';
+      cloudHtml += `<span class="cw ${sz}">${esc(w)}</span>`;
+    });
+  }
+  if (!cloudHtml && data.pain_fingerprint) {
+    const words = extractKeywords(data.pain_fingerprint);
+    words.forEach((w,i) => {
+      const sz = i < 2 ? 'xl' : i < 4 ? 'lg' : i < 7 ? 'md' : 'sm';
+      cloudHtml += `<span class="cw ${sz}">${esc(w)}</span>`;
+    });
+  }
+
+  // Score bars
+  const vel = (data.intent_velocity || 0) * 100;
+  const bw = data.buying_window_days <= 30 ? 100 : data.buying_window_days <= 90 ? 60 : 20;
+  const fit = data.fit_score || 50;
+  const corr = Math.min(signals.length * 20, 100);
+  const emo = signals.length ? (signals.reduce((a,s)=>a+(s.emotional_intensity||0),0)/signals.length)*100 : 0;
+  const ghost = Math.min((data.ghost_signal_count||0)*25, 100);
+  const comp = data.competitor_displacement ? 100 : 0;
+
+  // Committee
+  let comHtml = '';
+  committee.forEach(c => {
+    const rcls = c.role === 'economic_buyer' ? 'buyer' : c.role === 'technical_evaluator' ? 'tech' : c.role === 'champion' ? 'champion' : 'gatekeeper';
+    const rlbl = c.role.replace('_',' ').replace(/\b\w/g,l=>l.toUpperCase());
+    comHtml += `<div class="com-card"><div class="com-role ${rcls}">${rlbl}</div><div class="com-name">${esc(c.person_name||'Unknown')}</div><div class="com-title">${esc(c.person_title||'')}</div></div>`;
+  });
+
+  // Timeline
+  let tlHtml = '';
+  signals.forEach(s => {
+    const cls = signalClass(s.signal_type, s.source);
+    const dt = s.detected_at ? new Date(s.detected_at).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : '';
+    tlHtml += `<div class="tl-node ${cls}"><div class="tl-dt">${dt}</div><div class="tl-ti">${esc(s.title||s.signal_type)}</div><div class="tl-de">${esc((s.content||'').slice(0,120))}</div></div>`;
+  });
+
+  // Outreach
+  const drafts = [
+    {label:'A: Observation', text: data.outreach_a},
+    {label:'B: Industry', text: data.outreach_b},
+    {label:'C: Warm Path', text: data.outreach_c},
+  ].filter(d => d.text);
+
+  let outTabsHtml = '', outDraftHtml = '';
+  drafts.forEach((d,i) => {
+    outTabsHtml += `<button class="out-tab${i===0?' on':''}" onclick="showDraft(this,${i})">${d.label}</button>`;
+  });
+  if (drafts.length) {
+    outDraftHtml = drafts.map((d,i) => `<div class="out-draft" id="draft${i}" style="${i>0?'display:none':''}">${esc(d.text||'')}</div>`).join('');
+  }
+
+  // ROI
+  const dv = data.expected_deal_value || 0;
+  const cp = data.close_probability || 0;
+  const ev = data.expected_value || 0;
+
+  p.innerHTML = `
+    <div class="lph"><div><div class="lp-name">${esc(data.company_name)}</div><span class="lp-ind">${esc(data.industry||'')} &middot; ${esc(data.company_size||'')} &middot; ${esc(data.location||'')}</span></div><button class="lp-close" onclick="closeLead()">&#10005;</button></div>
+    <div class="mom-block"><div class="mom-big ${hcls}">${ms}</div><div class="mom-lbl">Momentum Score</div><span class="mom-act ${actCls}">${actLbl}</span></div>
+    <div class="vel-row"><span style="font-size:16px;color:${ms>=80?'var(--red)':'var(--amber)'}">${data.velocity_trend==='accelerating'?'&#128293;':data.velocity_trend==='steady'?'&#10132;':'&#10052;'}</span><span style="font-size:11px;color:var(--txt2)">${data.velocity_trend||'steady'} &middot; velocity ${(data.intent_velocity||0).toFixed(2)}</span>${sparkPts?`<svg class="spark" viewBox="0 0 120 28"><polyline fill="none" stroke="${heatColor(hcls||'cool')}" stroke-width="1.5" points="${sparkPts}"/></svg>`:''}</div>
+    <div class="sect"><h4>Score Breakdown</h4>
+      ${scoreBar('Intent Velocity (22%)', vel)}${scoreBar('Buying Window (20%)', bw)}${scoreBar('Fit Score (18%)', fit)}${scoreBar('Signal Corroboration (15%)', corr)}${scoreBar('Emotional Intensity (12%)', emo)}${scoreBar('Ghost Signals (8%)', ghost)}${scoreBar('Competitor (5%)', comp)}
+    </div>
+    ${stackHtml?`<div class="sect"><h4>Signal Stack (${signals.length} layers)</h4><div class="stk">${stackHtml}</div></div>`:''}
+    <div class="sect"><h4>Pain Fingerprint</h4><div class="pain-txt">${esc(data.pain_fingerprint||'No fingerprint yet.')}</div>${data.communication_style?`<span class="comm-tag">Style: ${data.communication_style}</span>`:''}</div>
+    ${cloudHtml?`<div class="sect"><h4>Pain Vocabulary</h4><div class="cloud">${cloudHtml}</div></div>`:''}
+    ${comHtml?`<div class="sect"><h4>Buying Committee (Inferred)</h4><div class="com-grid">${comHtml}</div></div>`:''}
+    ${tlHtml?`<div class="sect"><h4>Intent Trajectory</h4><div class="tl">${tlHtml}</div></div>`:''}
+    ${outTabsHtml?`<div class="sect"><h4>Outreach Drafts</h4><div class="out-tabs">${outTabsHtml}</div>${outDraftHtml}</div>`:''}
+    <div class="sect"><div class="roi-grid"><div class="roi-item"><div class="roi-v">$${fmtK(dv)}</div><div class="roi-l">Est. Deal Value</div></div><div class="roi-item"><div class="roi-v">${Math.round(cp*100)}%</div><div class="roi-l">Close Probability</div></div><div class="roi-item"><div class="roi-v">$${fmtK(ev)}</div><div class="roi-l">Expected Value</div></div><div class="roi-item"><div class="roi-v">${signals.length>0?Math.ceil(signals.length*0.8):'?'} hrs</div><div class="roi-l">Manual Equiv.</div></div></div></div>
+    <div class="lp-actions"><button class="btn btn-act" onclick="actLead(${data.id})">Act &mdash; Push to Ripple</button><button class="btn btn-pass" onclick="passLead(${data.id})">Pass</button></div>`;
+  p.classList.add('open');
+}
+
+function closeLead() { document.getElementById('leadPanel').classList.remove('open'); }
+
+function scoreBar(label, val) {
+  const v = Math.round(val);
+  const cls = v >= 70 ? 'hi' : v >= 40 ? 'mi' : 'lo';
+  return `<div class="sbar"><span class="sbar-l">${label}</span><div class="sbar-t"><div class="sbar-f ${cls}" style="width:${v}%"></div></div><span class="sbar-v">${v}</span></div>`;
+}
+
+function showDraft(btn, idx) {
+  btn.parentElement.querySelectorAll('.out-tab').forEach(t => t.classList.remove('on'));
+  btn.classList.add('on');
+  document.querySelectorAll('.out-draft').forEach((d,i) => d.style.display = i===idx ? '' : 'none');
+}
+
+function signalClass(type, source) {
+  const s = (source||'').toLowerCase();
+  const t = (type||'').toLowerCase();
+  if (s.includes('reddit') || t.includes('reddit')) return 'reddit';
+  if (s.includes('linkedin') || t.includes('linkedin') || t.includes('talent')) return 'linkedin';
+  if (t.includes('job') || t.includes('ghost_job')) return 'jobad';
+  if (t.includes('fund')) return 'funding';
+  if (t.includes('dark')) return 'darkweb';
+  if (t.includes('compet') || t.includes('displace')) return 'competitor';
+  if (t.includes('regul')) return 'regulatory';
+  if (t.includes('podcast')) return 'podcast';
+  if (t.includes('ghost')) return 'ghost';
+  return 'ghost';
+}
+
+function timeAgo(dt) {
+  if (!dt) return '';
+  const d = Math.round((Date.now() - new Date(dt).getTime()) / 86400000);
+  return d <= 0 ? 'today' : d === 1 ? '1d ago' : d + 'd ago';
+}
+
+function fmtK(n) { return n >= 1000 ? Math.round(n/1000) + 'K' : n; }
+
+function extractKeywords(text) {
+  const stops = new Set(['the','a','an','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','must','shall','can','need','dare','ought','used','to','of','in','for','on','with','at','by','from','as','into','through','during','before','after','above','below','between','out','off','over','under','again','further','then','once','here','there','when','where','why','how','all','each','every','both','few','more','most','other','some','such','no','nor','not','only','own','same','so','than','too','very','just','because','but','and','or','if','that','this','they','their','them','it','its','his','her','she','he','we','our','you','your','i','me','my','about','up','what','which','who','whom','these','those']);
+  const words = text.toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(w => w.length > 3 && !stops.has(w));
+  const freq = {};
+  words.forEach(w => freq[w] = (freq[w]||0)+1);
+  return Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,12).map(e=>e[0]);
+}
+
+/* ── Lead actions ─────────────────────────────────────── */
+async function actLead(id) { await apiPost(`/leads/${id}/act`, {}); closeLead(); loadRadar(); loadTop5(); }
+async function passLead(id) { await apiPost(`/leads/${id}/pass`, {}); closeLead(); loadRadar(); loadTop5(); }
+
+/* ── Rail filters ─────────────────────────────────────── */
+function setupRailFilters() {
+  document.querySelectorAll('.rail .chip[data-filter]').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('.rail .chip').forEach(x => x.classList.remove('on'));
+      c.classList.add('on');
+      activeFilter = c.dataset.filter || '';
+      loadRadar();
+    });
+  });
+}
+
+/* ── Views ────────────────────────────────────────────── */
+function showView(v) {
+  document.querySelectorAll('.nav button').forEach(b => b.classList.remove('on'));
+  event.target.classList.add('on');
+  document.getElementById('swipeView').classList.remove('on');
+  document.getElementById('privPanel').classList.remove('on');
+  if (v === 'swipe') loadSwipe();
+  else if (v === 'privacy') loadPrivacy();
+}
+
+/* ── Swipe / Daily Review ─────────────────────────────── */
+let swipeIdx = 0;
+async function loadSwipe() {
+  if (!top5Data.length) return;
+  swipeIdx = 0;
+  renderSwipeCard();
+  document.getElementById('swipeView').classList.add('on');
+}
+
+async function renderSwipeCard() {
+  if (swipeIdx >= top5Data.length) swipeIdx = 0;
+  const t = top5Data[swipeIdx];
+  const full = await api(`/leads/${t.id}`);
+  if (!full) return;
+  const signals = full.signals || [];
+  const sw = document.getElementById('swipeView');
+  const ms = full.momentum_score || 0;
+  const whyItems = [];
+  if (signals.length) whyItems.push(`${signals.length} corroborating signals`);
+  if (full.intent_velocity > 0.3) whyItems.push(`Intent velocity accelerating (${full.intent_velocity.toFixed(2)})`);
+  if (full.buying_window === 'active') whyItems.push('Active buying window (0-30 days)');
+  if (full.storm_id) whyItems.push('Industry storm match');
+  if (full.first_mover) whyItems.push('First mover bonus applied (+20%)');
+  if (full.dark_web_signal) whyItems.push('Dark web signal detected');
+
+  sw.innerHTML = `<div class="sw-card">
+    <div class="sw-top"><div class="sw-score">${ms}</div><div class="mom-lbl">Momentum Score</div><div class="sw-co">${esc(full.company_name)}</div><span class="lp-ind">${esc(full.industry||'')} &middot; ${esc(full.location||'')}</span></div>
+    <div class="sw-pain">${esc(full.pain_fingerprint||'')}</div>
+    <div class="sw-why"><h4>Why This Lead?</h4>${whyItems.map(w=>`<div class="wy-i"><span class="wy-d"></span>${esc(w)}</div>`).join('')}</div>
+    <div class="sw-acts"><button class="sw-btn sw-act-btn" onclick="actLead(${full.id});nextSwipe()">R &mdash; Act</button><button class="sw-btn sw-pass-btn" onclick="passLead(${full.id});nextSwipe()">P &mdash; Pass</button></div>
+    <div class="sw-hint">R = Act &middot; P = Pass &middot; &larr;&rarr; navigate &middot; Card ${swipeIdx+1}/${top5Data.length}</div></div>`;
+}
+
+function nextSwipe() { swipeIdx++; if (swipeIdx >= top5Data.length) swipeIdx = 0; renderSwipeCard(); }
+
+/* ── Privacy Panel ────────────────────────────────────── */
+async function loadPrivacy() {
+  const [cls, consent, audit, report] = await Promise.all([
+    api('/privacy/classifications'), api('/privacy/consent-registry'),
+    api('/privacy/audit?limit=10'), api('/privacy/report')
+  ]);
+  const pp = document.getElementById('privPanel');
+  let clsRows = '';
+  (cls?.classifications||[]).forEach(c => {
+    const badge = c.id === 'public_broadcast' ? 'pub' : c.id === 'inferred' ? 'inf' : c.id === 'dark_web' ? 'dw' : 'per';
+    clsRows += `<tr><td><span class="cb ${badge}">${esc(c.label)}</span></td><td>${esc(c.storage)}</td><td>${c.retention_days > 0 ? c.retention_days + ' days' : 'User-controlled'}</td></tr>`;
+  });
+  let consentRows = '';
+  (consent?.sources||[]).forEach(s => {
+    const badge = s.status === 'allowed' ? 'pub' : s.status === 'manual_only' ? 'inf' : 'dw';
+    consentRows += `<div class="al-row"><span class="cb ${badge}" style="min-width:60px;text-align:center">${s.status}</span>${esc(s.source_name)} (${esc(s.method)})</div>`;
+  });
+  let auditRows = '';
+  (audit?.audit_log||[]).forEach(a => {
+    const badge = a.classification === 'public_broadcast' ? 'pub' : a.classification === 'inferred' ? 'inf' : a.classification === 'dark_web' ? 'dw' : 'per';
+    const tm = a.collected_at ? new Date(a.collected_at).toLocaleString('en-AU') : '';
+    auditRows += `<div class="al-row"><span class="al-tm">${tm}</span><span class="cb ${badge}">${a.classification}</span>${esc(a.source)} &middot; signal #${a.signal_id||'?'}</div>`;
+  });
+
+  pp.innerHTML = `
+    <div class="priv-h"><div class="priv-t">Privacy &amp; Compliance Engine</div><button class="lp-close" onclick="document.getElementById('privPanel').classList.remove('on')">&#10005;</button></div>
+    <div class="priv-g">
+      <div class="priv-c"><h5>Data Classification Framework</h5><table class="cls-tbl"><thead><tr><th>Class</th><th>Storage</th><th>Retention</th></tr></thead><tbody>${clsRows}</tbody></table></div>
+      <div class="priv-c"><h5>Scrape Consent Registry</h5>${consentRows}</div>
+      <div class="priv-c"><h5>Right to Erasure</h5><p>Delete all signals, profiles, and fingerprints for a company.</p><div class="er-form"><input class="er-input" id="eraseInput" placeholder="Company name..."><button class="er-btn" onclick="eraseCompany()">Erase All Data</button></div><div id="eraseResult" style="margin-top:8px;font-size:11px;color:var(--green)"></div></div>
+      <div class="priv-c"><h5>Compliance Summary</h5><p>Total signals: ${report?.total_signals||0}<br>Expired: ${report?.expired_signals||0}<br>Erasure requests: ${report?.total_erasure_requests||0}<br>APP 5 notifications: ${report?.app5_notifications||0}<br>Dark web TOS: ${report?.dark_web_tos_accepted?.accepted ? 'Accepted' : 'Not accepted'}</p></div>
+    </div>
+    <div class="priv-c"><h5>Signal Audit Log (Recent)</h5>${auditRows}</div>`;
+  pp.classList.add('on');
+}
+
+async function eraseCompany() {
+  const name = document.getElementById('eraseInput').value.trim();
+  if (!name) return;
+  const r = await apiPost('/privacy/forget', {company_name: name});
+  document.getElementById('eraseResult').textContent = r ? `Erased ${r.records_deleted} records for ${r.company}` : 'Error';
+  loadRadar(); loadTop5();
+}
+
+/* ── Keyboard shortcuts ───────────────────────────────── */
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeLead(); document.getElementById('wrBanner').classList.remove('on'); document.getElementById('privPanel').classList.remove('on'); document.getElementById('swipeView').classList.remove('on'); }
+  if (document.getElementById('swipeView').classList.contains('on')) {
+    if (e.key === 'r' || e.key === 'R') { if (top5Data[swipeIdx]) actLead(top5Data[swipeIdx].id); nextSwipe(); }
+    if (e.key === 'p' || e.key === 'P') { if (top5Data[swipeIdx]) passLead(top5Data[swipeIdx].id); nextSwipe(); }
+    if (e.key === 'ArrowRight') nextSwipe();
+    if (e.key === 'ArrowLeft') { swipeIdx = Math.max(0, swipeIdx - 1); renderSwipeCard(); }
+  }
+});
+
+init();
+</script>
+</body>
+</html>

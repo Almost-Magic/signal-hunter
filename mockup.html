@@ -1,0 +1,2599 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signal Hunter v3.0 — P1 Mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ========================================================================
+   SIGNAL HUNTER v3.0 — P1 MOCKUP
+   Port: 5302 | NGINX: /signal/
+   Author: Mani Padisetti | Almost Magic Tech Lab
+   ======================================================================== */
+
+:root {
+  --bg-primary: #0A0E14;
+  --bg-secondary: #0F1419;
+  --bg-tertiary: #1A1F2E;
+  --bg-card: #141820;
+  --bg-glass: rgba(20, 24, 32, 0.85);
+  --text-primary: #E6E6E6;
+  --text-secondary: #8B9AB5;
+  --text-muted: #5A6578;
+  --accent-gold: #C9A85C;
+  --accent-amber: #FF8C00;
+  --accent-red: #FF4444;
+  --accent-green: #10B981;
+  --accent-blue: #3B82F6;
+  --accent-purple: #8B5CF6;
+  --accent-cyan: #06B6D4;
+  --ring-inner: rgba(255, 68, 68, 0.15);
+  --ring-mid: rgba(255, 140, 0, 0.10);
+  --ring-outer: rgba(59, 130, 246, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-glow: rgba(201, 168, 92, 0.3);
+  --shadow-glow: 0 0 20px rgba(201, 168, 92, 0.15);
+  --radius: 8px;
+  --font-display: 'Lora', serif;
+  --font-ui: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+[data-theme="light"] {
+  --bg-primary: #F5F5F0;
+  --bg-secondary: #EAEAE5;
+  --bg-tertiary: #DDDDD8;
+  --bg-card: #FFFFFF;
+  --bg-glass: rgba(255, 255, 255, 0.9);
+  --text-primary: #1A1A1A;
+  --text-secondary: #555555;
+  --text-muted: #888888;
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-glow: rgba(201, 168, 92, 0.4);
+  --ring-inner: rgba(255, 68, 68, 0.12);
+  --ring-mid: rgba(255, 140, 0, 0.08);
+  --ring-outer: rgba(59, 130, 246, 0.06);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-ui);
+  font-weight: 300;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+/* ── LAYOUT ───────────────────────────────────────────── */
+.app-shell {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  grid-template-rows: 48px 1fr;
+  height: 100vh;
+}
+
+/* ── HEADER ───────────────────────────────────────────── */
+.header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  z-index: 100;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.logo {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent-gold);
+  letter-spacing: 0.5px;
+}
+
+.logo-sub {
+  font-size: 10px;
+  font-weight: 300;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.header-center {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.storm-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: rgba(255, 140, 0, 0.12);
+  border: 1px solid rgba(255, 140, 0, 0.3);
+  border-radius: 20px;
+  font-size: 11px;
+  color: var(--accent-amber);
+  cursor: pointer;
+  animation: storm-pulse 2s ease-in-out infinite;
+}
+
+@keyframes storm-pulse {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+
+.storm-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--accent-amber);
+  border-radius: 50%;
+  animation: blink 1s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.credits-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border-radius: 20px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.theme-toggle {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent-gold);
+  color: var(--accent-gold);
+}
+
+/* ── LEFT RAIL — VERTICAL AGENTS ─────────────────────── */
+.left-rail {
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+.agent-chip {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.agent-chip:hover, .agent-chip.active {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
+.agent-chip.active::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: var(--accent-gold);
+  border-radius: 1px;
+}
+
+.agent-chip .chip-icon {
+  font-size: 16px;
+}
+
+.agent-chip .chip-label {
+  font-size: 7px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+
+.rail-separator {
+  width: 24px;
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 4px 0;
+}
+
+/* ── MAIN CONTENT ─────────────────────────────────────── */
+.main-content {
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── TODAY'S TOP 5 — PINNED BRIEF ─────────────────────── */
+.top5-bar {
+  padding: 10px 20px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+}
+
+.top5-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent-gold);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.top5-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  min-width: 240px;
+}
+
+.top5-card:hover {
+  border-color: var(--border-glow);
+  box-shadow: var(--shadow-glow);
+}
+
+.top5-score {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 600;
+  min-width: 36px;
+  text-align: center;
+}
+
+.top5-score.hot { color: var(--accent-red); }
+.top5-score.warm { color: var(--accent-amber); }
+.top5-score.cool { color: var(--accent-blue); }
+
+.top5-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.top5-company {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.top5-pain {
+  font-size: 10px;
+  color: var(--text-muted);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.top5-action {
+  margin-left: auto;
+  padding: 3px 8px;
+  font-size: 9px;
+  font-weight: 500;
+  background: var(--accent-gold);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── RADAR DASHBOARD ──────────────────────────────────── */
+.radar-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  height: calc(100vh - 48px - 52px);
+  overflow: hidden;
+}
+
+/* Particle field background */
+.radar-container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 10% 20%, rgba(255,255,255,0.04) 0%, transparent 100%),
+    radial-gradient(1px 1px at 30% 60%, rgba(255,255,255,0.03) 0%, transparent 100%),
+    radial-gradient(1px 1px at 50% 80%, rgba(255,255,255,0.04) 0%, transparent 100%),
+    radial-gradient(1px 1px at 70% 30%, rgba(255,255,255,0.03) 0%, transparent 100%),
+    radial-gradient(1px 1px at 90% 70%, rgba(255,255,255,0.04) 0%, transparent 100%),
+    radial-gradient(1px 1px at 15% 45%, rgba(255,255,255,0.02) 0%, transparent 100%),
+    radial-gradient(1px 1px at 85% 15%, rgba(255,255,255,0.03) 0%, transparent 100%),
+    radial-gradient(1px 1px at 45% 35%, rgba(255,255,255,0.02) 0%, transparent 100%);
+  animation: particle-drift 30s linear infinite;
+}
+
+@keyframes particle-drift {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-20px); }
+}
+
+.radar {
+  position: relative;
+  width: min(65vw, 65vh);
+  height: min(65vw, 65vh);
+}
+
+/* Three concentric rings */
+.radar-ring {
+  position: absolute;
+  border: 1px solid;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.radar-ring.outer {
+  inset: 0;
+  border-color: rgba(59, 130, 246, 0.15);
+  background: var(--ring-outer);
+}
+
+.radar-ring.mid {
+  inset: 18%;
+  border-color: rgba(255, 140, 0, 0.2);
+  background: var(--ring-mid);
+}
+
+.radar-ring.inner {
+  inset: 40%;
+  border-color: rgba(255, 68, 68, 0.25);
+  background: var(--ring-inner);
+  animation: inner-pulse 3s ease-in-out infinite;
+}
+
+@keyframes inner-pulse {
+  0%, 100% { box-shadow: inset 0 0 30px rgba(255, 68, 68, 0.05); }
+  50% { box-shadow: inset 0 0 50px rgba(255, 68, 68, 0.1); }
+}
+
+/* Ring labels */
+.ring-label {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.ring-label.inner-lbl { bottom: calc(40% - 18px); right: calc(50% + 12px); }
+.ring-label.mid-lbl { bottom: calc(18% - 18px); right: calc(50% + 12px); }
+.ring-label.outer-lbl { bottom: -18px; right: calc(50% + 12px); }
+
+/* Sweep line */
+.radar-sweep {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  animation: sweep 8s linear infinite;
+}
+
+.radar-sweep::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 50%;
+  height: 2px;
+  background: linear-gradient(to right, transparent, rgba(201, 168, 92, 0.4));
+  transform-origin: left center;
+}
+
+@keyframes sweep {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Centre dot */
+.radar-centre {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  background: var(--accent-gold);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 12px rgba(201, 168, 92, 0.5);
+  z-index: 10;
+}
+
+/* Lead blips */
+.blip {
+  position: absolute;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.3s, box-shadow 0.3s;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.blip:hover {
+  transform: scale(1.4);
+  z-index: 30;
+}
+
+.blip.hot {
+  background: var(--accent-red);
+  box-shadow: 0 0 16px rgba(255, 68, 68, 0.6);
+  animation: blip-pulse-hot 1.5s ease-in-out infinite;
+}
+
+.blip.warm {
+  background: var(--accent-amber);
+  box-shadow: 0 0 12px rgba(255, 140, 0, 0.4);
+  animation: blip-pulse-warm 2s ease-in-out infinite;
+}
+
+.blip.cool {
+  background: var(--accent-blue);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+}
+
+.blip.cold {
+  background: var(--text-muted);
+  opacity: 0.5;
+}
+
+@keyframes blip-pulse-hot {
+  0%, 100% { box-shadow: 0 0 12px rgba(255, 68, 68, 0.5); }
+  50% { box-shadow: 0 0 24px rgba(255, 68, 68, 0.8); }
+}
+
+@keyframes blip-pulse-warm {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 140, 0, 0.3); }
+  50% { box-shadow: 0 0 18px rgba(255, 140, 0, 0.6); }
+}
+
+/* Blip tooltip (glassmorphic) */
+.blip-tooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 220px;
+  padding: 12px;
+  background: var(--bg-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  z-index: 50;
+  pointer-events: none;
+}
+
+.blip:hover .blip-tooltip {
+  display: block;
+}
+
+.tooltip-company {
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.tooltip-score {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.tooltip-pain {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.tooltip-hunt {
+  display: inline-block;
+  padding: 3px 10px;
+  font-size: 10px;
+  font-weight: 500;
+  background: var(--accent-gold);
+  color: var(--bg-primary);
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Radar legend */
+.radar-legend {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.legend-dot.red { background: var(--accent-red); box-shadow: 0 0 6px rgba(255,68,68,0.5); }
+.legend-dot.amber { background: var(--accent-amber); }
+.legend-dot.blue { background: var(--accent-blue); }
+.legend-dot.grey { background: var(--text-muted); opacity: 0.5; }
+
+/* Radar stats */
+.radar-stats {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.stat-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-glass);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+}
+
+.stat-value {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stat-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* 2x2 matrix toggle */
+.matrix-toggle {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  padding: 6px 14px;
+  font-size: 10px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: var(--bg-glass);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.matrix-toggle:hover {
+  border-color: var(--accent-gold);
+  color: var(--accent-gold);
+}
+
+/* ── 2x2 MATRIX VIEW (hidden by default) ─────────────── */
+.matrix-view {
+  display: none;
+  position: absolute;
+  inset: 0;
+  padding: 40px;
+}
+
+.matrix-view.active { display: flex; align-items: center; justify-content: center; }
+
+.matrix-grid {
+  width: min(60vw, 60vh);
+  height: min(60vw, 60vh);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 2px;
+  position: relative;
+}
+
+.matrix-quadrant {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  border-radius: var(--radius);
+  position: relative;
+}
+
+.matrix-quadrant.nurture { background: rgba(59, 130, 246, 0.06); border: 1px solid rgba(59, 130, 246, 0.15); }
+.matrix-quadrant.priority { background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.15); }
+.matrix-quadrant.ignore { background: rgba(90, 101, 120, 0.06); border: 1px solid rgba(90, 101, 120, 0.15); }
+.matrix-quadrant.investigate { background: rgba(255, 140, 0, 0.06); border: 1px solid rgba(255, 140, 0, 0.15); }
+
+.quadrant-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.matrix-axis-label {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+}
+
+.axis-top { top: -24px; left: 50%; transform: translateX(-50%); }
+.axis-bottom { bottom: -24px; left: 50%; transform: translateX(-50%); }
+.axis-left { left: -60px; top: 50%; transform: translateY(-50%) rotate(-90deg); }
+.axis-right { right: -60px; top: 50%; transform: translateY(-50%) rotate(90deg); }
+
+/* ── LEAD DETAIL PANEL (slides in from right) ─────────── */
+.lead-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 480px;
+  height: 100%;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-subtle);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
+  z-index: 60;
+  overflow-y: auto;
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+}
+
+.lead-panel.open { transform: translateX(0); }
+
+.lead-panel-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.lead-company-name {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.lead-industry-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.lead-close-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Momentum Score block */
+.momentum-block {
+  padding: 20px;
+  text-align: center;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.momentum-score-large {
+  font-family: var(--font-mono);
+  font-size: 56px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.momentum-score-large.hot { color: var(--accent-red); text-shadow: 0 0 30px rgba(255, 68, 68, 0.4); }
+.momentum-score-large.warm { color: var(--accent-amber); }
+
+.momentum-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.momentum-action-label {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 3px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.momentum-action-label.act-today {
+  background: rgba(255, 68, 68, 0.15);
+  color: var(--accent-red);
+  animation: act-pulse 2s ease-in-out infinite;
+}
+
+@keyframes act-pulse {
+  0%, 100% { background: rgba(255, 68, 68, 0.15); }
+  50% { background: rgba(255, 68, 68, 0.25); }
+}
+
+/* Velocity sparkline */
+.velocity-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.velocity-indicator {
+  font-size: 16px;
+}
+
+.velocity-text {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.sparkline-container {
+  width: 120px;
+  height: 28px;
+}
+
+.sparkline-svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Score breakdown */
+.score-breakdown {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.score-breakdown h4 {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.score-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.score-bar-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  width: 130px;
+  text-align: right;
+}
+
+.score-bar-track {
+  flex: 1;
+  height: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.score-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+
+.score-bar-fill.high { background: var(--accent-green); }
+.score-bar-fill.mid { background: var(--accent-amber); }
+.score-bar-fill.low { background: var(--accent-red); }
+
+.score-bar-value {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  width: 28px;
+}
+
+/* Signal stack */
+.signal-stack {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.signal-stack h4 {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.stack-layers {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 3px;
+}
+
+.stack-layer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.stack-layer.reddit { background: rgba(255, 69, 0, 0.1); border-left: 3px solid #FF4500; color: #FF7043; }
+.stack-layer.linkedin { background: rgba(0, 119, 181, 0.1); border-left: 3px solid #0077B5; color: #4DA8DA; }
+.stack-layer.jobad { background: rgba(139, 92, 246, 0.1); border-left: 3px solid var(--accent-purple); color: #A78BFA; }
+.stack-layer.funding { background: rgba(16, 185, 129, 0.1); border-left: 3px solid var(--accent-green); color: #6EE7B7; }
+.stack-layer.darkweb { background: rgba(255, 68, 68, 0.08); border-left: 3px solid var(--accent-red); color: #FF6B6B; }
+.stack-layer.competitor { background: rgba(255, 140, 0, 0.1); border-left: 3px solid var(--accent-amber); color: #FFB347; }
+
+.stack-time {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* Pain fingerprint */
+.pain-section {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pain-section h4 {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.pain-text {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-style: italic;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  padding: 12px 16px;
+  border-left: 2px solid var(--accent-gold);
+  background: rgba(201, 168, 92, 0.04);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.comm-style {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 3px 10px;
+  font-size: 10px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+}
+
+/* Pain word cloud */
+.pain-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+}
+
+.cloud-word {
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cloud-word:hover {
+  background: rgba(201, 168, 92, 0.15);
+  color: var(--accent-gold);
+}
+
+.cloud-word.xl { font-size: 18px; font-weight: 600; color: var(--text-primary); }
+.cloud-word.lg { font-size: 15px; font-weight: 500; }
+.cloud-word.md { font-size: 12px; }
+.cloud-word.sm { font-size: 10px; color: var(--text-muted); }
+
+/* Timeline */
+.timeline-section {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.timeline-section h4 {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.timeline {
+  position: relative;
+  padding-left: 20px;
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-subtle);
+}
+
+.timeline-node {
+  position: relative;
+  padding: 8px 0 16px 16px;
+}
+
+.timeline-node::before {
+  content: '';
+  position: absolute;
+  left: -17px;
+  top: 12px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 2px solid;
+}
+
+.timeline-node:first-child::before {
+  box-shadow: 0 0 8px;
+  animation: node-glow 2s ease-in-out infinite;
+}
+
+@keyframes node-glow {
+  0%, 100% { box-shadow: 0 0 6px; }
+  50% { box-shadow: 0 0 14px; }
+}
+
+.timeline-node.reddit::before { border-color: #FF4500; color: #FF4500; }
+.timeline-node.linkedin::before { border-color: #0077B5; color: #0077B5; }
+.timeline-node.jobad::before { border-color: var(--accent-purple); color: var(--accent-purple); }
+.timeline-node.funding::before { border-color: var(--accent-green); color: var(--accent-green); }
+.timeline-node.ghost::before { border-color: var(--text-muted); color: var(--text-muted); border-style: dashed; }
+.timeline-node.predicted::before { border-color: var(--accent-gold); color: var(--accent-gold); border-style: dashed; }
+
+.timeline-date {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+.timeline-title {
+  font-size: 12px;
+  color: var(--text-primary);
+  margin: 2px 0;
+}
+
+.timeline-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Outreach drafts */
+.outreach-section {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.outreach-section h4 {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.outreach-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.outreach-tab {
+  padding: 5px 12px;
+  font-size: 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.outreach-tab.active {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--accent-gold);
+}
+
+.outreach-draft {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  padding: 12px;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-subtle);
+}
+
+.outreach-draft .highlight {
+  color: var(--accent-gold);
+  font-weight: 500;
+}
+
+/* ROI calculator */
+.roi-section {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.roi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.roi-item {
+  padding: 10px;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-subtle);
+  text-align: center;
+}
+
+.roi-value {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent-green);
+}
+
+.roi-label {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+
+/* Lead action bar */
+.lead-actions {
+  padding: 16px 20px;
+  display: flex;
+  gap: 10px;
+}
+
+.btn {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 0.2s;
+}
+
+.btn-act {
+  background: var(--accent-green);
+  color: #fff;
+}
+
+.btn-act:hover { background: #0ea572; }
+
+.btn-pass {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
+
+.btn-pass:hover { border-color: var(--accent-red); color: var(--accent-red); }
+
+/* ── WAR ROOM OVERLAY ─────────────────────────────────── */
+.warroom-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(255, 140, 0, 0.05);
+}
+
+.warroom-overlay.active { display: block; }
+
+.warroom-banner {
+  position: fixed;
+  top: 48px;
+  left: 56px;
+  right: 0;
+  padding: 16px 24px;
+  background: linear-gradient(135deg, rgba(255, 140, 0, 0.12), rgba(255, 68, 68, 0.08));
+  border-bottom: 2px solid rgba(255, 140, 0, 0.3);
+  z-index: 201;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.warroom-severity {
+  font-family: var(--font-mono);
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--accent-amber);
+  text-shadow: 0 0 20px rgba(255, 140, 0, 0.4);
+}
+
+.warroom-info {
+  flex: 1;
+}
+
+.warroom-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent-amber);
+}
+
+.warroom-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.warroom-window {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-red);
+  text-align: right;
+}
+
+.warroom-window-label {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.warroom-dismiss {
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 140, 0, 0.3);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--accent-amber);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* ── PRIVACY / COMPLIANCE PANEL ───────────────────────── */
+.privacy-panel {
+  display: none;
+  position: fixed;
+  top: 48px;
+  left: 56px;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-primary);
+  z-index: 150;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.privacy-panel.active { display: block; }
+
+.privacy-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.privacy-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.privacy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.privacy-card {
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+}
+
+.privacy-card h5 {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.privacy-card p {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.classification-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+}
+
+.classification-table th,
+.classification-table td {
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 11px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.classification-table th {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 10px;
+}
+
+.class-badge {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.class-badge.public { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
+.class-badge.inferred { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
+.class-badge.darkweb { background: rgba(255, 68, 68, 0.15); color: var(--accent-red); }
+.class-badge.personal { background: rgba(139, 92, 246, 0.15); color: var(--accent-purple); }
+
+.audit-log-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 11px;
+}
+
+.audit-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  min-width: 100px;
+}
+
+.erasure-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.erasure-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: var(--font-ui);
+}
+
+.erasure-btn {
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 68, 68, 0.3);
+  border-radius: var(--radius);
+  background: rgba(255, 68, 68, 0.1);
+  color: var(--accent-red);
+  font-size: 11px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+/* ── ONE-SWIPE REVIEW (hidden by default) ─────────────── */
+.swipe-view {
+  display: none;
+  position: fixed;
+  top: 48px;
+  left: 56px;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-primary);
+  z-index: 140;
+  padding: 40px;
+  align-items: center;
+  justify-content: center;
+}
+
+.swipe-view.active { display: flex; }
+
+.swipe-card {
+  width: 480px;
+  max-height: calc(100vh - 130px);
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.swipe-card-top {
+  padding: 24px;
+  text-align: center;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.swipe-score {
+  font-family: var(--font-mono);
+  font-size: 64px;
+  font-weight: 700;
+  color: var(--accent-red);
+  text-shadow: 0 0 40px rgba(255, 68, 68, 0.3);
+  animation: score-breathe 2s ease-in-out infinite;
+}
+
+@keyframes score-breathe {
+  0%, 100% { text-shadow: 0 0 30px rgba(255, 68, 68, 0.3); }
+  50% { text-shadow: 0 0 50px rgba(255, 68, 68, 0.5); }
+}
+
+.swipe-company {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.swipe-pain {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.swipe-pain-text {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-style: italic;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.swipe-why {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.swipe-why h4 {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.why-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 3px 0;
+}
+
+.why-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent-gold);
+}
+
+.swipe-actions {
+  padding: 16px 24px;
+  display: flex;
+  gap: 12px;
+}
+
+.swipe-btn {
+  flex: 1;
+  padding: 14px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.swipe-act {
+  background: var(--accent-green);
+  color: #fff;
+}
+
+.swipe-pass {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.swipe-hint {
+  text-align: center;
+  padding: 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* ── VIEW NAVIGATION ──────────────────────────────────── */
+.nav-tabs {
+  position: absolute;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg-glass);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 24px;
+  z-index: 80;
+}
+
+.nav-tab {
+  padding: 6px 14px;
+  font-size: 11px;
+  border: none;
+  border-radius: 20px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: var(--font-ui);
+}
+
+.nav-tab.active {
+  background: var(--accent-gold);
+  color: var(--bg-primary);
+  font-weight: 500;
+}
+
+.nav-tab:hover:not(.active) {
+  color: var(--text-primary);
+}
+
+/* ── DARK WEB TOS MODAL ───────────────────────────────── */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 300;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-overlay.active { display: flex; }
+
+.modal-box {
+  width: 440px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+.modal-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--accent-red);
+}
+
+.modal-body {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.modal-body ul {
+  margin: 8px 0 8px 16px;
+}
+
+.modal-body li {
+  margin-bottom: 4px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.modal-accept {
+  flex: 1;
+  padding: 10px;
+  background: rgba(255, 68, 68, 0.15);
+  border: 1px solid rgba(255, 68, 68, 0.3);
+  border-radius: var(--radius);
+  color: var(--accent-red);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.modal-cancel {
+  flex: 1;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* ── BUYING COMMITTEE (in lead panel) ─────────────────── */
+.committee-section {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.committee-section h4 {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.committee-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.committee-card {
+  padding: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+}
+
+.committee-role {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.committee-role.buyer { color: var(--accent-green); }
+.committee-role.tech { color: var(--accent-blue); }
+.committee-role.champion { color: var(--accent-purple); }
+.committee-role.gatekeeper { color: var(--accent-amber); }
+
+.committee-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.committee-title {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── WARM PATH (GNN) ──────────────────────────────────── */
+.warm-path {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.warm-path h4 {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.path-chain {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.path-node {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+}
+
+.path-node.you {
+  background: var(--accent-gold);
+  color: var(--bg-primary);
+  font-weight: 500;
+}
+
+.path-node.mutual {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent-green);
+  color: var(--accent-green);
+}
+
+.path-node.target {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.path-arrow {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* ── RESPONSIVE ───────────────────────────────────────── */
+@media (max-width: 1200px) {
+  .lead-panel { width: 400px; }
+}
+
+@media (max-width: 900px) {
+  .top5-bar { padding: 8px 12px; }
+  .top5-card { min-width: 200px; }
+}
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ═══ HEADER ═══ -->
+  <header class="header">
+    <div class="header-left">
+      <div>
+        <div class="logo">Signal Hunter</div>
+        <div class="logo-sub">Timing Intelligence Engine</div>
+      </div>
+    </div>
+    <div class="header-center">
+      <div class="storm-indicator" onclick="toggleWarRoom()">
+        <span class="storm-dot"></span>
+        STORM: Privacy Act Reform 2026 — Severity 9
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="credits-pill">
+        <span>&#9679;</span> 683 credits
+      </div>
+      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light theme">
+        &#9790;
+      </button>
+    </div>
+  </header>
+
+  <!-- ═══ LEFT RAIL — VERTICAL AGENTS ═══ -->
+  <nav class="left-rail">
+    <div class="agent-chip active" title="All Verticals">
+      <span class="chip-icon">&#9673;</span>
+    </div>
+    <div class="agent-chip" title="Cyber Security">
+      <span class="chip-icon">&#9888;</span>
+    </div>
+    <div class="agent-chip" title="AI / Digital Transformation">
+      <span class="chip-icon">&#9881;</span>
+    </div>
+    <div class="agent-chip" title="Legal / Compliance">
+      <span class="chip-icon">&#9878;</span>
+    </div>
+    <div class="agent-chip" title="Finance">
+      <span class="chip-icon">&#9830;</span>
+    </div>
+    <div class="agent-chip" title="Construction">
+      <span class="chip-icon">&#9964;</span>
+    </div>
+    <div class="agent-chip" title="Healthcare">
+      <span class="chip-icon">&#10010;</span>
+    </div>
+
+    <div class="rail-separator"></div>
+
+    <div class="agent-chip" title="Privacy & Compliance" onclick="togglePrivacy()">
+      <span class="chip-icon">&#128274;</span>
+    </div>
+    <div class="agent-chip" title="Competitor Intel">
+      <span class="chip-icon">&#9876;</span>
+    </div>
+  </nav>
+
+  <!-- ═══ MAIN CONTENT ═══ -->
+  <div class="main-content">
+
+    <!-- Today's Top 5 -->
+    <div class="top5-bar">
+      <div class="top5-label">
+        &#9733; Today's Top 5
+      </div>
+
+      <div class="top5-card" onclick="openLead()">
+        <div class="top5-score hot">94</div>
+        <div class="top5-info">
+          <div class="top5-company">Meridian Health Group</div>
+          <div class="top5-pain">"Can't figure out our data governance..."</div>
+        </div>
+        <button class="top5-action">Send Draft A</button>
+      </div>
+
+      <div class="top5-card">
+        <div class="top5-score hot">87</div>
+        <div class="top5-info">
+          <div class="top5-company">Nexus Financial Services</div>
+          <div class="top5-pain">Head of Compliance departed 3 days ago</div>
+        </div>
+        <button class="top5-action">Send Draft A</button>
+      </div>
+
+      <div class="top5-card">
+        <div class="top5-score warm">76</div>
+        <div class="top5-info">
+          <div class="top5-company">CloudForge Pty Ltd</div>
+          <div class="top5-pain">Job ad: "Head of Data Governance" posted</div>
+        </div>
+        <button class="top5-action">Send Draft A</button>
+      </div>
+
+      <div class="top5-card">
+        <div class="top5-score warm">71</div>
+        <div class="top5-info">
+          <div class="top5-company">Pacific Infrastructure Co</div>
+          <div class="top5-pain">Reddit: "running out of time on compliance"</div>
+        </div>
+        <button class="top5-action">Send Draft A</button>
+      </div>
+
+      <div class="top5-card">
+        <div class="top5-score warm">68</div>
+        <div class="top5-info">
+          <div class="top5-company">Verdant Agri-Tech</div>
+          <div class="top5-pain">AusTender: Privacy framework procurement</div>
+        </div>
+        <button class="top5-action">Send Draft A</button>
+      </div>
+    </div>
+
+    <!-- ═══ RADAR VIEW ═══ -->
+    <div class="radar-container" id="radarView">
+      <div class="radar">
+        <!-- Concentric rings -->
+        <div class="radar-ring outer"></div>
+        <div class="radar-ring mid"></div>
+        <div class="radar-ring inner"></div>
+
+        <!-- Ring labels -->
+        <span class="ring-label inner-lbl">0-30 days</span>
+        <span class="ring-label mid-lbl">31-90 days</span>
+        <span class="ring-label outer-lbl">90+ days</span>
+
+        <!-- Sweep line -->
+        <div class="radar-sweep"></div>
+
+        <!-- Centre dot -->
+        <div class="radar-centre"></div>
+
+        <!-- BLIPS — inner ring (0-30d, hot) -->
+        <div class="blip hot" style="width:20px;height:20px;top:35%;left:55%;" onclick="openLead()">
+          <div class="blip-tooltip">
+            <div class="tooltip-company">Meridian Health Group</div>
+            <div class="tooltip-score">Momentum: <strong style="color:#FF4444">94</strong> | Fit: 88</div>
+            <div class="tooltip-pain">"Can't figure out our data governance before the Privacy Act deadline"</div>
+            <span class="tooltip-hunt">Hunt</span>
+          </div>
+        </div>
+
+        <div class="blip hot" style="width:16px;height:16px;top:42%;left:38%;">
+          <div class="blip-tooltip">
+            <div class="tooltip-company">Nexus Financial Services</div>
+            <div class="tooltip-score">Momentum: <strong style="color:#FF4444">87</strong> | Fit: 92</div>
+            <div class="tooltip-pain">Head of Compliance resigned. 3 senior departures in 47 days.</div>
+            <span class="tooltip-hunt">Hunt</span>
+          </div>
+        </div>
+
+        <div class="blip hot" style="width:14px;height:14px;top:30%;left:45%;">
+          <div class="blip-tooltip">
+            <div class="tooltip-company">AltaVista Legal</div>
+            <div class="tooltip-score">Momentum: <strong style="color:#FF4444">82</strong> | Fit: 75</div>
+            <div class="tooltip-pain">Podcast mention: "genuinely struggling with cloud spend"</div>
+            <span class="tooltip-hunt">Hunt</span>
+          </div>
+        </div>
+
+        <!-- BLIPS — mid ring (31-90d, warm) -->
+        <div class="blip warm" style="width:18px;height:18px;top:22%;left:60%;">
+          <div class="blip-tooltip">
+            <div class="tooltip-company">CloudForge Pty Ltd</div>
+            <div class="tooltip-score">Momentum: <strong style="color:#FF8C00">76</strong> | Fit: 84</div>
+            <div class="tooltip-pain">Ghost signal: Head of Data Governance job ad posted 6 days ago</div>
+            <span class="tooltip-hunt">Hunt</span>
+          </div>
+        </div>
+
+        <div class="blip warm" style="width:14px;height:14px;top:65%;left:62%;">
+          <div class="blip-tooltip">
+            <div class="tooltip-company">Pacific Infrastructure Co</div>
+            <div class="tooltip-score">Momentum: <strong style="color:#FF8C00">71</strong> | Fit: 69</div>
+            <div class="tooltip-pain">Reddit post: "running out of time on privacy compliance"</div>
+            <span class="tooltip-hunt">Hunt</span>
+          </div>
+        </div>
+
+        <div class="blip warm" style="width:12px;height:12px;top:68%;left:35%;">
+          <div class="blip-tooltip">
+            <div class="tooltip-company">Verdant Agri-Tech</div>
+            <div class="tooltip-score">Momentum: <strong style="color:#FF8C00">68</strong> | Fit: 72</div>
+            <div class="tooltip-pain">AusTender: Privacy framework procurement notice</div>
+            <span class="tooltip-hunt">Hunt</span>
+          </div>
+        </div>
+
+        <div class="blip warm" style="width:10px;height:10px;top:25%;left:30%;">
+          <div class="blip-tooltip">
+            <div class="tooltip-company">Quantum Ledger</div>
+            <div class="tooltip-score">Momentum: <strong style="color:#FF8C00">63</strong> | Fit: 80</div>
+            <div class="tooltip-pain">Competitor displacement: migrating away from DataSecure</div>
+            <span class="tooltip-hunt">Hunt</span>
+          </div>
+        </div>
+
+        <!-- BLIPS — outer ring (90+d, cool) -->
+        <div class="blip cool" style="width:14px;height:14px;top:12%;left:50%;">
+          <div class="blip-tooltip">
+            <div class="tooltip-company">Southern Cross Mining</div>
+            <div class="tooltip-score">Momentum: <strong style="color:#3B82F6">52</strong> | Fit: 91</div>
+            <div class="tooltip-pain">ICP match but no urgency signals detected yet</div>
+            <span class="tooltip-hunt">Hunt</span>
+          </div>
+        </div>
+
+        <div class="blip cool" style="width:10px;height:10px;top:80%;left:50%;">
+          <div class="blip-tooltip">
+            <div class="tooltip-company">Harbourside Consulting</div>
+            <div class="tooltip-score">Momentum: <strong style="color:#3B82F6">45</strong> | Fit: 65</div>
+            <div class="tooltip-pain">Website change detected: new "Data" page added</div>
+            <span class="tooltip-hunt">Hunt</span>
+          </div>
+        </div>
+
+        <div class="blip cold" style="width:8px;height:8px;top:10%;left:25%;">
+        </div>
+        <div class="blip cold" style="width:8px;height:8px;top:85%;left:70%;">
+        </div>
+        <div class="blip cold" style="width:6px;height:6px;top:15%;left:72%;">
+        </div>
+      </div>
+
+      <!-- Radar legend -->
+      <div class="radar-legend">
+        <div class="legend-item"><span class="legend-dot red"></span> Accelerating (Act today)</div>
+        <div class="legend-item"><span class="legend-dot amber"></span> Steady (Act this week)</div>
+        <div class="legend-item"><span class="legend-dot blue"></span> Nurture (Pipeline)</div>
+        <div class="legend-item"><span class="legend-dot grey"></span> Monitor</div>
+      </div>
+
+      <!-- Stats overlay -->
+      <div class="radar-stats">
+        <div class="stat-box">
+          <div>
+            <div class="stat-value">13</div>
+            <div class="stat-label">Active Leads</div>
+          </div>
+        </div>
+        <div class="stat-box">
+          <div>
+            <div class="stat-value" style="color: var(--accent-red);">3</div>
+            <div class="stat-label">Act Today</div>
+          </div>
+        </div>
+        <div class="stat-box">
+          <div>
+            <div class="stat-value" style="color: var(--accent-amber);">1</div>
+            <div class="stat-label">Active Storm</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Matrix toggle -->
+      <button class="matrix-toggle" onclick="toggleMatrix()">2x2 Matrix</button>
+
+      <!-- Nav tabs -->
+      <div class="nav-tabs">
+        <button class="nav-tab active" onclick="showView('radar')">Radar</button>
+        <button class="nav-tab" onclick="showView('swipe')">Daily Review</button>
+        <button class="nav-tab" onclick="showView('privacy')">Privacy</button>
+      </div>
+    </div>
+
+    <!-- ═══ 2x2 MATRIX VIEW (toggles over radar) ═══ -->
+    <div class="matrix-view" id="matrixView">
+      <div class="matrix-grid">
+        <span class="matrix-axis-label axis-top">High Fit</span>
+        <span class="matrix-axis-label axis-bottom">Low Fit</span>
+        <span class="matrix-axis-label axis-left">Low Intent</span>
+        <span class="matrix-axis-label axis-right">High Intent</span>
+
+        <div class="matrix-quadrant nurture">
+          <div class="quadrant-label">Nurture</div>
+          <div class="blip cool" style="width:10px;height:10px;position:relative;"></div>
+          <div class="blip cool" style="width:8px;height:8px;position:relative;margin-top:8px;"></div>
+        </div>
+        <div class="matrix-quadrant priority">
+          <div class="quadrant-label" style="color: var(--accent-green);">Priority</div>
+          <div class="blip hot" style="width:18px;height:18px;position:relative;"></div>
+          <div class="blip hot" style="width:14px;height:14px;position:relative;margin-top:8px;"></div>
+          <div class="blip warm" style="width:12px;height:12px;position:relative;margin-top:8px;"></div>
+        </div>
+        <div class="matrix-quadrant ignore">
+          <div class="quadrant-label">Ignore</div>
+          <div class="blip cold" style="width:8px;height:8px;position:relative;"></div>
+        </div>
+        <div class="matrix-quadrant investigate">
+          <div class="quadrant-label" style="color: var(--accent-amber);">Investigate</div>
+          <div class="blip warm" style="width:14px;height:14px;position:relative;"></div>
+          <div class="blip warm" style="width:10px;height:10px;position:relative;margin-top:8px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ LEAD DETAIL PANEL ═══ -->
+    <div class="lead-panel" id="leadPanel">
+      <div class="lead-panel-header">
+        <div>
+          <div class="lead-company-name">Meridian Health Group</div>
+          <span class="lead-industry-badge">Healthcare &middot; 200-500 FTE &middot; Sydney</span>
+        </div>
+        <button class="lead-close-btn" onclick="closeLead()">&#10005;</button>
+      </div>
+
+      <!-- Momentum Score -->
+      <div class="momentum-block">
+        <div class="momentum-score-large hot">94</div>
+        <div class="momentum-label">Momentum Score</div>
+        <span class="momentum-action-label act-today">ACT TODAY</span>
+      </div>
+
+      <!-- Velocity -->
+      <div class="velocity-row">
+        <span class="velocity-indicator" style="color: var(--accent-red);">&#128293;</span>
+        <span class="velocity-text">Accelerating &middot; velocity 0.72</span>
+        <div class="sparkline-container">
+          <svg class="sparkline-svg" viewBox="0 0 120 28">
+            <polyline fill="none" stroke="#FF4444" stroke-width="1.5"
+              points="0,24 8,22 16,20 24,21 32,18 40,16 48,17 56,14 64,12 72,10 80,8 88,7 96,5 104,4 112,3 120,2" />
+            <circle cx="120" cy="2" r="2.5" fill="#FF4444" />
+          </svg>
+        </div>
+      </div>
+
+      <!-- Score breakdown -->
+      <div class="score-breakdown">
+        <h4>Score Breakdown</h4>
+        <div class="score-bar-row">
+          <span class="score-bar-label">Intent Velocity (22%)</span>
+          <div class="score-bar-track"><div class="score-bar-fill high" style="width:92%"></div></div>
+          <span class="score-bar-value">92</span>
+        </div>
+        <div class="score-bar-row">
+          <span class="score-bar-label">Buying Window (20%)</span>
+          <div class="score-bar-track"><div class="score-bar-fill high" style="width:100%"></div></div>
+          <span class="score-bar-value">100</span>
+        </div>
+        <div class="score-bar-row">
+          <span class="score-bar-label">Fit Score (18%)</span>
+          <div class="score-bar-track"><div class="score-bar-fill high" style="width:88%"></div></div>
+          <span class="score-bar-value">88</span>
+        </div>
+        <div class="score-bar-row">
+          <span class="score-bar-label">Signal Corroboration (15%)</span>
+          <div class="score-bar-track"><div class="score-bar-fill high" style="width:85%"></div></div>
+          <span class="score-bar-value">85</span>
+        </div>
+        <div class="score-bar-row">
+          <span class="score-bar-label">Emotional Intensity (12%)</span>
+          <div class="score-bar-track"><div class="score-bar-fill high" style="width:90%"></div></div>
+          <span class="score-bar-value">90</span>
+        </div>
+        <div class="score-bar-row">
+          <span class="score-bar-label">Ghost Signals (8%)</span>
+          <div class="score-bar-track"><div class="score-bar-fill mid" style="width:70%"></div></div>
+          <span class="score-bar-value">70</span>
+        </div>
+        <div class="score-bar-row">
+          <span class="score-bar-label">Competitor (5%)</span>
+          <div class="score-bar-track"><div class="score-bar-fill mid" style="width:60%"></div></div>
+          <span class="score-bar-value">60</span>
+        </div>
+      </div>
+
+      <!-- Signal Stack -->
+      <div class="signal-stack">
+        <h4>Signal Stack (5 layers)</h4>
+        <div class="stack-layers">
+          <div class="stack-layer darkweb">Dark Web: credential exposure detected <span class="stack-time">2d ago</span></div>
+          <div class="stack-layer funding">Funding: $4.2M Series A completed <span class="stack-time">8d ago</span></div>
+          <div class="stack-layer competitor">Competitor: negative DataSecure review on G2 <span class="stack-time">5d ago</span></div>
+          <div class="stack-layer linkedin">LinkedIn: CTO posted about "compliance nightmare" <span class="stack-time">3d ago</span></div>
+          <div class="stack-layer reddit">Reddit: "can't figure out data governance" <span class="stack-time">1d ago</span></div>
+        </div>
+      </div>
+
+      <!-- Pain Fingerprint -->
+      <div class="pain-section">
+        <h4>Pain Fingerprint</h4>
+        <div class="pain-text">
+          They're drowning in compliance requirements they didn't plan for.
+          The language is anxious — "can't figure out", "running out of time",
+          "nightmare". Decision-making is reactive, driven by regulatory fear
+          rather than strategic choice. They need someone to make this simple.
+        </div>
+        <span class="comm-style">Style: Driver &middot; Lead with ROI, no preamble</span>
+
+        <div class="pain-cloud">
+          <span class="cloud-word xl">compliance</span>
+          <span class="cloud-word lg">governance</span>
+          <span class="cloud-word lg">nightmare</span>
+          <span class="cloud-word md">running out of time</span>
+          <span class="cloud-word md">can't figure out</span>
+          <span class="cloud-word md">data</span>
+          <span class="cloud-word sm">framework</span>
+          <span class="cloud-word sm">audit</span>
+          <span class="cloud-word sm">privacy act</span>
+          <span class="cloud-word sm">breach</span>
+          <span class="cloud-word sm">OAIC</span>
+          <span class="cloud-word sm">deadline</span>
+        </div>
+      </div>
+
+      <!-- Warm Path (GNN) -->
+      <div class="warm-path">
+        <h4>Warm Path (GNN)</h4>
+        <div class="path-chain">
+          <span class="path-node you">You (Mani)</span>
+          <span class="path-arrow">&rarr;</span>
+          <span class="path-node mutual">Sarah Chen (VP Eng, Acme Corp)</span>
+          <span class="path-arrow">&rarr;</span>
+          <span class="path-node target">James Liu (CTO, Meridian Health)</span>
+        </div>
+        <p style="font-size:11px;color:var(--text-muted);margin-top:8px;">
+          Sarah moved from Acme to advisory role with Meridian 4 months ago.
+          Draft intro request generated.
+        </p>
+      </div>
+
+      <!-- Buying Committee -->
+      <div class="committee-section">
+        <h4>Buying Committee (Inferred)</h4>
+        <div class="committee-grid">
+          <div class="committee-card">
+            <div class="committee-role buyer">Economic Buyer</div>
+            <div class="committee-name">Dr. Rachel Tan</div>
+            <div class="committee-title">CEO</div>
+          </div>
+          <div class="committee-card">
+            <div class="committee-role tech">Technical Evaluator</div>
+            <div class="committee-name">James Liu</div>
+            <div class="committee-title">CTO</div>
+          </div>
+          <div class="committee-card">
+            <div class="committee-role champion">Champion</div>
+            <div class="committee-name">Priya Sharma</div>
+            <div class="committee-title">Head of Operations</div>
+          </div>
+          <div class="committee-card">
+            <div class="committee-role gatekeeper">Gatekeeper</div>
+            <div class="committee-name">Mark Wilson</div>
+            <div class="committee-title">Legal Counsel</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timeline -->
+      <div class="timeline-section">
+        <h4>Intent Trajectory</h4>
+        <div class="timeline">
+          <div class="timeline-node predicted">
+            <div class="timeline-date">Projected: 14-28 Apr 2026</div>
+            <div class="timeline-title">Estimated decision point</div>
+            <div class="timeline-desc">Based on signal velocity and buying window</div>
+          </div>
+          <div class="timeline-node reddit">
+            <div class="timeline-date">17 Mar 2026</div>
+            <div class="timeline-title">Reddit: "can't figure out data governance"</div>
+            <div class="timeline-desc">r/AusFinance &middot; 23 upvotes &middot; Emotional intensity: High</div>
+          </div>
+          <div class="timeline-node linkedin">
+            <div class="timeline-date">15 Mar 2026</div>
+            <div class="timeline-title">LinkedIn: CTO posts about compliance</div>
+            <div class="timeline-desc">"This compliance nightmare is consuming my team" — 47 reactions</div>
+          </div>
+          <div class="timeline-node funding">
+            <div class="timeline-date">10 Mar 2026</div>
+            <div class="timeline-title">Funding: $4.2M Series A announced</div>
+            <div class="timeline-desc">Crunchbase AU &middot; Budget confirmation signal</div>
+          </div>
+          <div class="timeline-node jobad">
+            <div class="timeline-date">4 Mar 2026</div>
+            <div class="timeline-title">Ghost: "Head of Data Governance" job posted</div>
+            <div class="timeline-desc">Seek &middot; Reporting to CTO &middot; $180-210k &middot; Budget proof</div>
+          </div>
+          <div class="timeline-node ghost">
+            <div class="timeline-date">28 Feb 2026</div>
+            <div class="timeline-title">Ghost: Website added "Compliance" page</div>
+            <div class="timeline-desc">Detected via weekly diff &middot; New strategic focus</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Outreach Drafts -->
+      <div class="outreach-section">
+        <h4>Outreach Drafts</h4>
+        <div class="outreach-tabs">
+          <button class="outreach-tab active">A: Observation</button>
+          <button class="outreach-tab">B: Industry</button>
+          <button class="outreach-tab">C: Warm Path</button>
+        </div>
+        <div class="outreach-draft">
+          Your post about <span class="highlight">data governance</span> on Tuesday caught
+          my attention — that's exactly the problem three of our clients described right before
+          they brought in outside help. Two of them went from "can't figure it out" to
+          audit-ready in eight weeks. If that sounds useful, I'm around Thursday afternoon.
+          <br><br>
+          <span style="font-size:10px;color:var(--text-muted);font-style:italic;">
+            Disclosure: This message is based on publicly available information.
+          </span>
+        </div>
+      </div>
+
+      <!-- ROI -->
+      <div class="roi-section">
+        <div class="roi-grid">
+          <div class="roi-item">
+            <div class="roi-value">$85K</div>
+            <div class="roi-label">Est. Deal Value</div>
+          </div>
+          <div class="roi-item">
+            <div class="roi-value">72%</div>
+            <div class="roi-label">Close Probability</div>
+          </div>
+          <div class="roi-item">
+            <div class="roi-value">$61.2K</div>
+            <div class="roi-label">Expected Value</div>
+          </div>
+          <div class="roi-item">
+            <div class="roi-value">4 hrs</div>
+            <div class="roi-label">Manual Equiv.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="lead-actions">
+        <button class="btn btn-act">Act &mdash; Push to Ripple</button>
+        <button class="btn btn-pass">Pass</button>
+      </div>
+    </div>
+
+    <!-- ═══ ONE-SWIPE DAILY REVIEW ═══ -->
+    <div class="swipe-view" id="swipeView">
+      <div class="swipe-card">
+        <div class="swipe-card-top">
+          <div class="swipe-score">94</div>
+          <div class="momentum-label">Momentum Score</div>
+          <div class="swipe-company">Meridian Health Group</div>
+          <span class="lead-industry-badge">Healthcare &middot; Sydney &middot; 200-500 FTE</span>
+        </div>
+
+        <div class="swipe-pain">
+          <div class="swipe-pain-text">
+            They're drowning in compliance requirements they didn't plan for.
+            The language is anxious — "can't figure out", "running out of time",
+            "nightmare". They need someone to make this simple.
+          </div>
+        </div>
+
+        <div class="swipe-why">
+          <h4>Why This Lead?</h4>
+          <div class="why-item"><span class="why-dot"></span> 5 corroborating signals across 4 sources</div>
+          <div class="why-item"><span class="why-dot"></span> Intent velocity accelerating (0.72)</div>
+          <div class="why-item"><span class="why-dot"></span> Active buying window (0-30 days)</div>
+          <div class="why-item"><span class="why-dot"></span> Privacy Act storm match (Severity 9)</div>
+          <div class="why-item"><span class="why-dot"></span> Warm path via Sarah Chen (1 hop)</div>
+          <div class="why-item"><span class="why-dot"></span> First mover bonus applied (+20%)</div>
+        </div>
+
+        <div class="swipe-actions">
+          <button class="swipe-btn swipe-act">R &mdash; Act</button>
+          <button class="swipe-btn swipe-pass">P &mdash; Pass</button>
+        </div>
+        <div class="swipe-hint">Keyboard: R = Act &middot; P = Pass &middot; &larr;&rarr; to navigate</div>
+      </div>
+    </div>
+
+    <!-- ═══ PRIVACY / COMPLIANCE PANEL ═══ -->
+    <div class="privacy-panel" id="privacyPanel">
+      <div class="privacy-header">
+        <div class="privacy-title">Privacy &amp; Compliance Engine</div>
+        <button class="lead-close-btn" onclick="togglePrivacy()">&#10005;</button>
+      </div>
+
+      <div class="privacy-grid">
+        <div class="privacy-card">
+          <h5>Data Classification Framework</h5>
+          <table class="classification-table">
+            <thead>
+              <tr><th>Class</th><th>Storage</th><th>Retention</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="class-badge public">Public Broadcast</span></td>
+                <td>Full text</td>
+                <td>90 days</td>
+              </tr>
+              <tr>
+                <td><span class="class-badge inferred">Inferred Signal</span></td>
+                <td>Metadata only</td>
+                <td>90 days</td>
+              </tr>
+              <tr>
+                <td><span class="class-badge darkweb">Dark Web</span></td>
+                <td>Hashed ref only</td>
+                <td>30 days</td>
+              </tr>
+              <tr>
+                <td><span class="class-badge personal">Personal Data</span></td>
+                <td>Encrypted, separate</td>
+                <td>User-controlled</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="privacy-card">
+          <h5>Scrape Consent Registry</h5>
+          <p>Sources checked before collection:</p>
+          <div style="margin-top:8px;">
+            <div class="audit-log-row">
+              <span class="class-badge public" style="min-width:60px;text-align:center;">Allowed</span>
+              Reddit (public API only)
+            </div>
+            <div class="audit-log-row">
+              <span class="class-badge public" style="min-width:60px;text-align:center;">Allowed</span>
+              AusTender (free public API)
+            </div>
+            <div class="audit-log-row">
+              <span class="class-badge inferred" style="min-width:60px;text-align:center;">Manual</span>
+              LinkedIn (Baldrick session, never automated)
+            </div>
+            <div class="audit-log-row">
+              <span class="class-badge public" style="min-width:60px;text-align:center;">Allowed</span>
+              Seek/Indeed (Jina Reader)
+            </div>
+          </div>
+        </div>
+
+        <div class="privacy-card">
+          <h5>Right to Erasure</h5>
+          <p>POST /api/privacy/forget-company — removes all signals, profiles, and fingerprints for a named company.</p>
+          <div class="erasure-form">
+            <input class="erasure-input" type="text" placeholder="Company name to erase...">
+            <button class="erasure-btn">Erase All Data</button>
+          </div>
+        </div>
+
+        <div class="privacy-card">
+          <h5>Transparency Disclosure</h5>
+          <p>Every outreach draft includes:</p>
+          <div style="margin-top:8px;padding:8px;background:var(--bg-tertiary);border-radius:4px;font-size:11px;font-style:italic;color:var(--text-secondary);">
+            "This message is based on publicly available information."
+          </div>
+          <p style="margin-top:6px;font-size:10px;">Toggle available per draft. System logs when removed.</p>
+        </div>
+
+        <div class="privacy-card">
+          <h5>APP 5 Notification Flow</h5>
+          <p>If personal data from non-public sources is surfaced, an APP 5 notification workflow triggers before display to user.</p>
+          <div style="margin-top:8px;padding:8px;background:rgba(139,92,246,0.08);border-radius:4px;font-size:11px;color:var(--accent-purple);">
+            Status: No APP 5 triggers in last 30 days
+          </div>
+        </div>
+
+        <div class="privacy-card">
+          <h5>Dark Web Module (Gated)</h5>
+          <p>Company-level intelligence only. Never individual employees. 30-day auto-deletion.</p>
+          <button style="margin-top:8px;padding:6px 14px;background:rgba(255,68,68,0.1);border:1px solid rgba(255,68,68,0.3);border-radius:var(--radius);color:var(--accent-red);font-size:11px;cursor:pointer;" onclick="showDarkWebTOS()">
+            Enable Dark Web Module (requires TOS)
+          </button>
+        </div>
+      </div>
+
+      <div class="privacy-card" style="margin-top:16px;">
+        <h5>Signal Audit Log (Recent)</h5>
+        <div class="audit-log-row">
+          <span class="audit-time">2026-03-17 14:23</span>
+          <span class="class-badge public">Public</span>
+          <span>Reddit r/AusFinance &middot; Meridian Health Group &middot; signal_id: 1847</span>
+        </div>
+        <div class="audit-log-row">
+          <span class="audit-time">2026-03-15 09:11</span>
+          <span class="class-badge public">Public</span>
+          <span>LinkedIn post &middot; CTO James Liu &middot; signal_id: 1842</span>
+        </div>
+        <div class="audit-log-row">
+          <span class="audit-time">2026-03-13 16:45</span>
+          <span class="class-badge darkweb">Dark Web</span>
+          <span>HaveIBeenPwned &middot; meridianhealth.com.au &middot; signal_id: 1839</span>
+        </div>
+        <div class="audit-log-row">
+          <span class="audit-time">2026-03-10 08:30</span>
+          <span class="class-badge inferred">Inferred</span>
+          <span>Crunchbase AU &middot; Funding round &middot; signal_id: 1831</span>
+        </div>
+        <div class="audit-log-row">
+          <span class="audit-time">2026-03-04 11:17</span>
+          <span class="class-badge inferred">Inferred</span>
+          <span>Seek job ad &middot; Head of Data Governance &middot; signal_id: 1820</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main-content -->
+</div><!-- /app-shell -->
+
+<!-- ═══ WAR ROOM OVERLAY ═══ -->
+<div class="warroom-overlay" id="warRoomOverlay">
+  <div class="warroom-banner">
+    <div class="warroom-severity">9</div>
+    <div class="warroom-info">
+      <div class="warroom-title">INDUSTRY STORM: Australian Privacy Act Reform 2026</div>
+      <div class="warroom-detail">OAIC enforcement powers increased. Notifiable Data Breaches scheme amended. 50,000+ ANZ companies potentially affected.</div>
+    </div>
+    <div class="warroom-window">
+      <div>Window closes in <strong>43 days</strong></div>
+      <div class="warroom-window-label">Compliance deadline</div>
+    </div>
+    <button class="warroom-dismiss" onclick="toggleWarRoom()">Dismiss</button>
+  </div>
+</div>
+
+<!-- ═══ DARK WEB TOS MODAL ═══ -->
+<div class="modal-overlay" id="darkWebModal">
+  <div class="modal-box">
+    <div class="modal-title">Dark Web Intelligence Module — Terms of Service</div>
+    <div class="modal-body">
+      By enabling this module, you acknowledge and agree:
+      <ul>
+        <li>Only <strong>company-level intelligence</strong> is surfaced — never individual employee data</li>
+        <li>All data stored as <strong>hashed references only</strong> — never raw dark web content</li>
+        <li>Automatic <strong>30-day deletion</strong> of all dark web references</li>
+        <li>Full <strong>audit log</strong> of every dark web query</li>
+        <li>Intelligence is used for <strong>legitimate security advisory outreach only</strong></li>
+        <li>You will not use this data to <strong>harm, embarrass, or coerce</strong> any entity</li>
+      </ul>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-accept" onclick="hideDarkWebTOS()">I Accept — Enable Module</button>
+      <button class="modal-cancel" onclick="hideDarkWebTOS()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── Theme toggle ─────────────────────────────────────── */
+function toggleTheme() {
+  const html = document.documentElement;
+  const btn = document.querySelector('.theme-toggle');
+  if (html.getAttribute('data-theme') === 'dark') {
+    html.setAttribute('data-theme', 'light');
+    btn.innerHTML = '&#9788;';
+  } else {
+    html.setAttribute('data-theme', 'dark');
+    btn.innerHTML = '&#9790;';
+  }
+}
+
+/* ── Lead panel ───────────────────────────────────────── */
+function openLead() {
+  document.getElementById('leadPanel').classList.add('open');
+}
+
+function closeLead() {
+  document.getElementById('leadPanel').classList.remove('open');
+}
+
+/* ── War Room ─────────────────────────────────────────── */
+function toggleWarRoom() {
+  document.getElementById('warRoomOverlay').classList.toggle('active');
+}
+
+/* ── Privacy panel ────────────────────────────────────── */
+function togglePrivacy() {
+  const panel = document.getElementById('privacyPanel');
+  panel.classList.toggle('active');
+  // close other views
+  document.getElementById('swipeView').classList.remove('active');
+}
+
+/* ── Dark Web TOS ─────────────────────────────────────── */
+function showDarkWebTOS() {
+  document.getElementById('darkWebModal').classList.add('active');
+}
+
+function hideDarkWebTOS() {
+  document.getElementById('darkWebModal').classList.remove('active');
+}
+
+/* ── Matrix toggle ────────────────────────────────────── */
+let matrixActive = false;
+function toggleMatrix() {
+  matrixActive = !matrixActive;
+  document.getElementById('matrixView').classList.toggle('active', matrixActive);
+}
+
+/* ── View navigation ──────────────────────────────────── */
+function showView(view) {
+  const tabs = document.querySelectorAll('.nav-tab');
+  tabs.forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+
+  document.getElementById('swipeView').classList.remove('active');
+  document.getElementById('privacyPanel').classList.remove('active');
+
+  if (view === 'swipe') {
+    document.getElementById('swipeView').classList.add('active');
+  } else if (view === 'privacy') {
+    document.getElementById('privacyPanel').classList.add('active');
+  }
+}
+
+/* ── Keyboard shortcuts ───────────────────────────────── */
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeLead();
+    document.getElementById('warRoomOverlay').classList.remove('active');
+    document.getElementById('darkWebModal').classList.remove('active');
+  }
+});
+</script>
+</body>
+</html>

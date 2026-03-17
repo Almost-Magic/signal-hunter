@@ -1,0 +1,856 @@
+# Author: Mani Padisetti
+"""
+Signal Hunter v3.0 — Timing Intelligence Engine
+Port: 5302 | Path: /home/mani/signalhunter/
+NGINX subpath: /signal/
+
+Probabilistic timing intelligence engine with adaptive learning.
+Phase 0: Privacy-First Compliance Engine
+Phase 1: Core Engine (leads, radar, scoring, storms, ELAINE)
+
+Almost Magic Tech Lab
+"""
+
+import time
+import math
+import json
+import hashlib
+from datetime import datetime, timezone, timedelta, date
+from typing import Optional
+
+import asyncpg
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
+
+VERSION = "3.0.0"
+APP_NAME = "signal-hunter"
+DISPLAY_NAME = "Signal Hunter"
+PORT = 5302
+PREFIX = "/signal"
+DB_URL = "postgresql://amtl:amtl@localhost:5433/signalhunter"
+
+_start_time = time.monotonic()
+_pool: Optional[asyncpg.Pool] = None
+
+app = FastAPI(title=DISPLAY_NAME, version=VERSION, docs_url=f"{PREFIX}/docs", redoc_url=None)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+HERE = Path(__file__).parent
+
+
+# ── DB helpers ────────────────────────────────────────────────────────────────
+
+async def get_pool():
+    global _pool
+    if _pool is None:
+        _pool = await asyncpg.create_pool(DB_URL, min_size=2, max_size=10)
+    return _pool
+
+
+async def db_fetch(query: str, *args):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetch(query, *args)
+
+
+async def db_fetchrow(query: str, *args):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(query, *args)
+
+
+async def db_execute(query: str, *args):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.execute(query, *args)
+
+
+async def db_fetchval(query: str, *args):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(query, *args)
+
+
+def row_to_dict(row):
+    if row is None:
+        return None
+    return dict(row)
+
+
+def rows_to_list(rows):
+    return [dict(r) for r in rows]
+
+
+def json_serial(obj):
+    """JSON serializer for objects not serializable by default."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, timedelta):
+        return obj.total_seconds()
+    raise TypeError(f"Type {type(obj)} not serializable")
+
+
+# ── Startup / Shutdown ────────────────────────────────────────────────────────
+
+@app.on_event("startup")
+async def startup():
+    await get_pool()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    global _pool
+    if _pool:
+        await _pool.close()
+        _pool = None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HEALTH
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/health")
+@app.get(f"{PREFIX}/health")
+async def health():
+    uptime = time.monotonic() - _start_time
+    try:
+        await db_fetchval("SELECT 1")
+        db_ok = True
+    except Exception:
+        db_ok = False
+    return {
+        "status": "operational" if db_ok else "degraded",
+        "service": APP_NAME,
+        "version": VERSION,
+        "port": PORT,
+        "uptime_seconds": round(uptime, 1),
+        "database": "connected" if db_ok else "disconnected",
+    }
+
+
+@app.get(f"{PREFIX}/api/health")
+async def api_health():
+    uptime = time.monotonic() - _start_time
+    return {
+        "status": "operational",
+        "service": APP_NAME,
+        "version": VERSION,
+        "uptime_seconds": round(uptime, 1),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 0 — PRIVACY-FIRST COMPLIANCE ENGINE
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Data Classification ───────────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/privacy/classifications")
+async def get_classifications():
+    """Return the signal data classification framework."""
+    rows = await db_fetch("SELECT * FROM signal_classifications ORDER BY id")
+    return {"classifications": rows_to_list(rows)}
+
+
+# ── Scrape Consent Registry ──────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/privacy/consent-registry")
+async def get_consent_registry():
+    """Return the scrape consent registry — which sources are allowed."""
+    rows = await db_fetch("SELECT * FROM scrape_consent ORDER BY source_name")
+    return {"sources": rows_to_list(rows)}
+
+
+# ── Signal Audit Log ─────────────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/privacy/audit")
+async def get_audit_log(limit: int = 50, offset: int = 0):
+    """Return the signal audit log — full chain of custody."""
+    rows = await db_fetch(
+        "SELECT * FROM signal_audit WHERE deleted_at IS NULL ORDER BY collected_at DESC LIMIT $1 OFFSET $2",
+        limit, offset,
+    )
+    total = await db_fetchval("SELECT COUNT(*) FROM signal_audit WHERE deleted_at IS NULL")
+    return {"audit_log": rows_to_list(rows), "total": total}
+
+
+# ── Compliance Report ─────────────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/privacy/report")
+async def get_compliance_report():
+    """Generate a compliance report — signal counts by classification, retention status."""
+    by_class = await db_fetch(
+        "SELECT classification, COUNT(*) AS count FROM signal_audit WHERE deleted_at IS NULL GROUP BY classification"
+    )
+    total_signals = await db_fetchval("SELECT COUNT(*) FROM signals")
+    expired = await db_fetchval(
+        "SELECT COUNT(*) FROM signals WHERE expires_at IS NOT NULL AND expires_at < NOW()"
+    )
+    erasures = await db_fetchval("SELECT COUNT(*) FROM erasure_log")
+    app5_count = await db_fetchval("SELECT COUNT(*) FROM app5_notifications")
+    dark_web_tos = await db_fetchrow(
+        "SELECT accepted, accepted_at FROM dark_web_tos WHERE user_id = 1 ORDER BY id DESC LIMIT 1"
+    )
+    return {
+        "report_date": datetime.now(timezone.utc).isoformat(),
+        "total_signals": total_signals,
+        "expired_signals": expired,
+        "by_classification": rows_to_list(by_class),
+        "total_erasure_requests": erasures,
+        "app5_notifications": app5_count,
+        "dark_web_tos_accepted": row_to_dict(dark_web_tos) if dark_web_tos else {"accepted": False},
+    }
+
+
+# ── Right to Erasure ─────────────────────────────────────────────────────────
+
+@app.post(f"{PREFIX}/api/privacy/forget")
+async def forget_company(request: Request):
+    """POST /api/privacy/forget-company — delete all data for a named company."""
+    body = await request.json()
+    company = body.get("company_name", "").strip()
+    if not company:
+        raise HTTPException(400, {"error": "company_name is required"})
+    if len(company) > 500:
+        raise HTTPException(400, {"error": "company_name too long (max 500 chars)"})
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            # Find matching leads
+            leads = await conn.fetch(
+                "SELECT id FROM leads WHERE LOWER(company_name) = LOWER($1)", company
+            )
+            lead_ids = [r["id"] for r in leads]
+            deleted_counts = {"leads": 0, "signals": 0, "audit_entries": 0, "velocity": 0, "committee": 0}
+
+            if lead_ids:
+                # Mark audit entries as deleted (soft delete for compliance)
+                await conn.execute(
+                    "UPDATE signal_audit SET deleted_at = NOW() WHERE lead_id = ANY($1::int[])", lead_ids
+                )
+                deleted_counts["audit_entries"] = len(lead_ids)
+
+                # Delete signals
+                r = await conn.execute("DELETE FROM signals WHERE lead_id = ANY($1::int[])", lead_ids)
+                deleted_counts["signals"] = int(r.split()[-1]) if r else 0
+
+                # Delete velocity history
+                r = await conn.execute("DELETE FROM velocity_history WHERE lead_id = ANY($1::int[])", lead_ids)
+                deleted_counts["velocity"] = int(r.split()[-1]) if r else 0
+
+                # Delete buying committee
+                r = await conn.execute("DELETE FROM buying_committee WHERE lead_id = ANY($1::int[])", lead_ids)
+                deleted_counts["committee"] = int(r.split()[-1]) if r else 0
+
+                # Delete leads
+                r = await conn.execute("DELETE FROM leads WHERE id = ANY($1::int[])", lead_ids)
+                deleted_counts["leads"] = int(r.split()[-1]) if r else 0
+
+            total = sum(deleted_counts.values())
+            # Log the erasure
+            await conn.execute(
+                "INSERT INTO erasure_log (company_name, records_deleted, details) VALUES ($1, $2, $3)",
+                company, total, json.dumps(deleted_counts),
+            )
+
+    return {
+        "status": "erased",
+        "company": company,
+        "records_deleted": total,
+        "details": deleted_counts,
+        "audit_trail": f"Erasure logged at {datetime.now(timezone.utc).isoformat()}",
+    }
+
+
+# ── Dark Web TOS ─────────────────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/privacy/dark-web-tos")
+async def get_dark_web_tos():
+    """Check if the user has accepted the Dark Web module TOS."""
+    row = await db_fetchrow(
+        "SELECT accepted, accepted_at FROM dark_web_tos WHERE user_id = 1 ORDER BY id DESC LIMIT 1"
+    )
+    if row:
+        return {"accepted": row["accepted"], "accepted_at": row["accepted_at"]}
+    return {"accepted": False, "accepted_at": None}
+
+
+@app.post(f"{PREFIX}/api/privacy/dark-web-tos")
+async def accept_dark_web_tos(request: Request):
+    """Accept the Dark Web module Terms of Service."""
+    body = await request.json()
+    accept = body.get("accept", False)
+    ip = request.client.host if request.client else "unknown"
+    await db_execute(
+        "INSERT INTO dark_web_tos (user_id, accepted, accepted_at, ip_address) VALUES (1, $1, NOW(), $2)",
+        accept, ip,
+    )
+    return {"accepted": accept, "accepted_at": datetime.now(timezone.utc).isoformat()}
+
+
+# ── APP 5 Notifications ──────────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/privacy/app5")
+async def get_app5_notifications():
+    """Return APP 5 notification history."""
+    rows = await db_fetch("SELECT * FROM app5_notifications ORDER BY created_at DESC LIMIT 50")
+    return {"notifications": rows_to_list(rows)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 1 — CORE ENGINE
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Momentum Score Calculation ────────────────────────────────────────────────
+
+MOMENTUM_WEIGHTS = {
+    "intent_velocity": 0.22,
+    "buying_window": 0.20,
+    "fit_score": 0.18,
+    "signal_corroboration": 0.15,
+    "emotional_intensity": 0.12,
+    "ghost_signal_density": 0.08,
+    "competitor_presence": 0.05,
+}
+
+INDUSTRY_DECAY = {
+    "Cybersecurity": 2,
+    "Legal": 30,
+    "Government": 60,
+    "Technology": 3,
+    "Construction": 14,
+    "Healthcare": 7,
+    "Finance": 7,
+    "Agriculture": 14,
+    "Mining": 14,
+    "Professional Services": 7,
+}
+
+
+def compute_buying_window_score(days: int) -> float:
+    if days <= 30:
+        return 100.0
+    elif days <= 90:
+        return 60.0
+    return 20.0
+
+
+def compute_momentum(lead: dict, signals: list) -> float:
+    """Compute the Momentum Score for a lead."""
+    velocity_norm = min(lead.get("intent_velocity", 0) * 100, 100)
+    bw_score = compute_buying_window_score(lead.get("buying_window_days", 90))
+    fit = lead.get("fit_score", 50)
+    corroboration = min(len(signals) * 20, 100)
+
+    avg_emotional = 0
+    if signals:
+        avg_emotional = sum(s.get("emotional_intensity", 0) for s in signals) / len(signals) * 100
+
+    ghost_count = lead.get("ghost_signal_count", 0)
+    ghost_density = min(ghost_count * 25, 100)
+
+    competitor = 100 if lead.get("competitor_displacement") else 0
+
+    raw = (
+        velocity_norm * MOMENTUM_WEIGHTS["intent_velocity"]
+        + bw_score * MOMENTUM_WEIGHTS["buying_window"]
+        + fit * MOMENTUM_WEIGHTS["fit_score"]
+        + corroboration * MOMENTUM_WEIGHTS["signal_corroboration"]
+        + avg_emotional * MOMENTUM_WEIGHTS["emotional_intensity"]
+        + ghost_density * MOMENTUM_WEIGHTS["ghost_signal_density"]
+        + competitor * MOMENTUM_WEIGHTS["competitor_presence"]
+    )
+
+    # Modifiers
+    modifier = 1.0
+    if lead.get("first_mover"):
+        modifier *= 1.20
+    if lead.get("dark_web_signal"):
+        modifier *= 1.10
+
+    # Saturation penalty
+    sat = lead.get("saturation_index", 0)
+    if sat > 0.7:
+        modifier *= 0.85
+
+    return min(round(raw * modifier, 1), 100)
+
+
+def velocity_trend_label(v: float) -> str:
+    if v > 0.3:
+        return "accelerating"
+    elif v >= 0.05:
+        return "steady"
+    elif v > 0:
+        return "cooling"
+    return "stalled"
+
+
+def buying_window_label(days: int) -> str:
+    if days <= 30:
+        return "active"
+    elif days <= 90:
+        return "warming"
+    return "pipeline"
+
+
+# ── Leads ─────────────────────────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/leads")
+async def list_leads(status: Optional[str] = None, industry: Optional[str] = None, limit: int = 50):
+    """Return leads ranked by Momentum Score."""
+    conditions = ["1=1"]
+    args = []
+    idx = 1
+
+    if status:
+        conditions.append(f"status = ${idx}")
+        args.append(status)
+        idx += 1
+    if industry:
+        conditions.append(f"industry = ${idx}")
+        args.append(industry)
+        idx += 1
+
+    where = " AND ".join(conditions)
+    rows = await db_fetch(
+        f"SELECT * FROM leads WHERE {where} ORDER BY momentum_score DESC LIMIT ${idx}",
+        *args, limit,
+    )
+    return {"leads": rows_to_list(rows), "count": len(rows)}
+
+
+@app.get(f"{PREFIX}/api/leads/{{lead_id}}")
+async def get_lead(lead_id: int):
+    """Return full lead with signals and committee."""
+    lead = await db_fetchrow("SELECT * FROM leads WHERE id = $1", lead_id)
+    if not lead:
+        raise HTTPException(404, {"error": "Lead not found"})
+
+    signals = await db_fetch(
+        "SELECT * FROM signals WHERE lead_id = $1 ORDER BY detected_at DESC", lead_id
+    )
+    committee = await db_fetch(
+        "SELECT * FROM buying_committee WHERE lead_id = $1 ORDER BY role", lead_id
+    )
+    velocity = await db_fetch(
+        "SELECT * FROM velocity_history WHERE lead_id = $1 ORDER BY signal_date", lead_id
+    )
+
+    lead_dict = row_to_dict(lead)
+    lead_dict["signals"] = rows_to_list(signals)
+    lead_dict["buying_committee"] = rows_to_list(committee)
+    lead_dict["velocity_history"] = rows_to_list(velocity)
+    return lead_dict
+
+
+@app.get(f"{PREFIX}/api/leads/{{lead_id}}/timeline")
+async def get_lead_timeline(lead_id: int):
+    """Return signal history as ordered events for the timeline view."""
+    lead = await db_fetchrow("SELECT id, company_name FROM leads WHERE id = $1", lead_id)
+    if not lead:
+        raise HTTPException(404, {"error": "Lead not found"})
+
+    signals = await db_fetch(
+        "SELECT id, source, signal_type, title, content, emotional_intensity, detected_at "
+        "FROM signals WHERE lead_id = $1 ORDER BY detected_at DESC",
+        lead_id,
+    )
+    events = []
+    for s in signals:
+        events.append({
+            "id": s["id"],
+            "date": s["detected_at"].isoformat() if s["detected_at"] else None,
+            "source": s["source"],
+            "type": s["signal_type"],
+            "title": s["title"],
+            "description": s["content"][:200] if s["content"] else None,
+            "intensity": s["emotional_intensity"],
+        })
+    return {"lead_id": lead_id, "company": lead["company_name"], "events": events}
+
+
+@app.get(f"{PREFIX}/api/leads/{{lead_id}}/committee")
+async def get_lead_committee(lead_id: int):
+    """Return buying committee map for a lead."""
+    lead = await db_fetchrow("SELECT id FROM leads WHERE id = $1", lead_id)
+    if not lead:
+        raise HTTPException(404, {"error": "Lead not found"})
+    rows = await db_fetch(
+        "SELECT * FROM buying_committee WHERE lead_id = $1 ORDER BY role", lead_id
+    )
+    return {"lead_id": lead_id, "committee": rows_to_list(rows)}
+
+
+@app.post(f"{PREFIX}/api/leads/{{lead_id}}/act")
+async def act_on_lead(lead_id: int):
+    """Mark a lead as contacted."""
+    lead = await db_fetchrow("SELECT id FROM leads WHERE id = $1", lead_id)
+    if not lead:
+        raise HTTPException(404, {"error": "Lead not found"})
+    await db_execute(
+        "UPDATE leads SET status = 'contacted', contacted_at = NOW() WHERE id = $1", lead_id
+    )
+    return {"status": "contacted", "lead_id": lead_id}
+
+
+@app.post(f"{PREFIX}/api/leads/{{lead_id}}/pass")
+async def pass_on_lead(lead_id: int):
+    """Archive a lead — trains the algorithm."""
+    lead = await db_fetchrow("SELECT id FROM leads WHERE id = $1", lead_id)
+    if not lead:
+        raise HTTPException(404, {"error": "Lead not found"})
+    await db_execute("UPDATE leads SET status = 'archived' WHERE id = $1", lead_id)
+    return {"status": "archived", "lead_id": lead_id}
+
+
+@app.post(f"{PREFIX}/api/leads/{{lead_id}}/outcome")
+async def record_outcome(lead_id: int, request: Request):
+    """Record won/lost outcome + reason + actual value."""
+    lead = await db_fetchrow("SELECT id, created_at FROM leads WHERE id = $1", lead_id)
+    if not lead:
+        raise HTTPException(404, {"error": "Lead not found"})
+
+    body = await request.json()
+    outcome = body.get("outcome")
+    if outcome not in ("won", "lost"):
+        raise HTTPException(400, {"error": "outcome must be 'won' or 'lost'"})
+
+    reason = body.get("reason", "")
+    value = body.get("deal_value_actual", 0)
+    now = datetime.now(timezone.utc)
+    days = (now - lead["created_at"]).days if lead["created_at"] else 0
+
+    await db_execute(
+        "UPDATE leads SET outcome = $2, outcome_reason = $3, deal_value_actual = $4, "
+        "sales_cycle_days = $5, status = $6, won_at = CASE WHEN $2 = 'won' THEN NOW() ELSE NULL END "
+        "WHERE id = $1",
+        lead_id, outcome, reason, value, days, outcome,
+    )
+
+    # If won, create a win template (Reverse Signal Pattern)
+    if outcome == "won":
+        signals = await db_fetch(
+            "SELECT signal_type, source FROM signals WHERE lead_id = $1 ORDER BY detected_at", lead_id
+        )
+        sequence = [{"type": s["signal_type"], "source": s["source"]} for s in signals]
+        lead_row = await db_fetchrow("SELECT industry, company_size FROM leads WHERE id = $1", lead_id)
+        await db_execute(
+            "INSERT INTO win_templates (lead_id, signal_sequence, industry, company_size, win_value) "
+            "VALUES ($1, $2, $3, $4, $5)",
+            lead_id, str(sequence), lead_row["industry"] if lead_row else None,
+            lead_row["company_size"] if lead_row else None, value,
+        )
+
+    return {"status": outcome, "lead_id": lead_id, "sales_cycle_days": days}
+
+
+# ── Radar ─────────────────────────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/radar")
+async def get_radar(industry: Optional[str] = None):
+    """Return all leads formatted for the radar UI."""
+    if industry:
+        rows = await db_fetch(
+            "SELECT id, company_name, industry, momentum_score, fit_score, intent_velocity, "
+            "velocity_trend, buying_window, buying_window_days, expected_deal_value, "
+            "pain_fingerprint, signal_count, dark_web_signal, first_mover, status "
+            "FROM leads WHERE status NOT IN ('archived', 'won', 'lost') AND industry = $1 "
+            "ORDER BY momentum_score DESC",
+            industry,
+        )
+    else:
+        rows = await db_fetch(
+            "SELECT id, company_name, industry, momentum_score, fit_score, intent_velocity, "
+            "velocity_trend, buying_window, buying_window_days, expected_deal_value, "
+            "pain_fingerprint, signal_count, dark_web_signal, first_mover, status "
+            "FROM leads WHERE status NOT IN ('archived', 'won', 'lost') "
+            "ORDER BY momentum_score DESC"
+        )
+
+    blips = []
+    for r in rows:
+        ms = r["momentum_score"] or 0
+        if ms >= 80:
+            heat = "hot"
+        elif ms >= 60:
+            heat = "warm"
+        elif ms >= 40:
+            heat = "cool"
+        else:
+            heat = "cold"
+
+        bw = r["buying_window"] or "pipeline"
+        if bw == "active":
+            ring = "inner"
+        elif bw == "warming":
+            ring = "mid"
+        else:
+            ring = "outer"
+
+        pain_summary = (r["pain_fingerprint"] or "")[:100]
+        if len(r["pain_fingerprint"] or "") > 100:
+            pain_summary += "..."
+
+        blips.append({
+            "id": r["id"],
+            "company": r["company_name"],
+            "industry": r["industry"],
+            "momentum": ms,
+            "fit": r["fit_score"] or 0,
+            "velocity": r["intent_velocity"] or 0,
+            "velocity_trend": r["velocity_trend"] or "steady",
+            "buying_window": bw,
+            "ring": ring,
+            "heat": heat,
+            "deal_value": r["expected_deal_value"] or 0,
+            "pain_summary": pain_summary,
+            "signal_count": r["signal_count"] or 0,
+            "dark_web": r["dark_web_signal"] or False,
+            "first_mover": r["first_mover"] or False,
+        })
+
+    storms = await db_fetch("SELECT id, event_name, severity, industry FROM storm_events WHERE active = TRUE")
+    return {
+        "blips": blips,
+        "count": len(blips),
+        "active_storms": rows_to_list(storms),
+    }
+
+
+# ── Today's Top 5 ────────────────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/today")
+async def todays_top5():
+    """Return today's top 5 leads ranked by Momentum Score."""
+    rows = await db_fetch(
+        "SELECT id, company_name, industry, momentum_score, fit_score, intent_velocity, "
+        "velocity_trend, buying_window, pain_fingerprint, communication_style, outreach_a, "
+        "expected_deal_value, close_probability, expected_value, signal_count "
+        "FROM leads WHERE status NOT IN ('archived', 'won', 'lost') "
+        "ORDER BY momentum_score DESC LIMIT 5"
+    )
+    top5 = []
+    for r in rows:
+        pain = (r["pain_fingerprint"] or "")[:120]
+        top5.append({
+            "id": r["id"],
+            "company": r["company_name"],
+            "industry": r["industry"],
+            "momentum": r["momentum_score"] or 0,
+            "fit": r["fit_score"] or 0,
+            "velocity_trend": r["velocity_trend"] or "steady",
+            "buying_window": r["buying_window"] or "pipeline",
+            "pain_summary": pain,
+            "outreach_a": r["outreach_a"],
+            "deal_value": r["expected_deal_value"] or 0,
+            "close_probability": r["close_probability"] or 0,
+            "expected_value": r["expected_value"] or 0,
+        })
+    return {"top5": top5, "date": date.today().isoformat()}
+
+
+# ── Storms ────────────────────────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/storms/active")
+async def active_storms():
+    """Return currently active Industry Storms."""
+    rows = await db_fetch(
+        "SELECT * FROM storm_events WHERE active = TRUE ORDER BY severity DESC"
+    )
+    storms = []
+    for r in rows:
+        d = row_to_dict(r)
+        if r["window_closes"]:
+            delta = r["window_closes"] - date.today()
+            d["days_remaining"] = max(delta.days, 0)
+        else:
+            d["days_remaining"] = None
+        storms.append(d)
+    return {"storms": storms, "count": len(storms)}
+
+
+# ── Velocity ──────────────────────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/velocity/{{entity_id}}")
+async def get_velocity(entity_id: str):
+    """Return velocity history for an entity."""
+    rows = await db_fetch(
+        "SELECT * FROM velocity_history WHERE entity_id = $1 ORDER BY signal_date", entity_id
+    )
+    if not rows:
+        raise HTTPException(404, {"error": "No velocity data for this entity"})
+    return {"entity_id": entity_id, "history": rows_to_list(rows)}
+
+
+# ── Win Templates (Reverse Signal Pattern) ────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/patterns/wins")
+async def get_win_patterns():
+    """Return the user's win templates — reverse signal patterns."""
+    rows = await db_fetch("SELECT * FROM win_templates ORDER BY created_at DESC LIMIT 20")
+    return {"patterns": rows_to_list(rows)}
+
+
+# ── Competitors ───────────────────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/competitors")
+async def get_competitors():
+    """Return competitor displacement leaderboard."""
+    comps = await db_fetch("SELECT * FROM competitors ORDER BY name")
+    result = []
+    for c in comps:
+        sig_count = await db_fetchval(
+            "SELECT COUNT(*) FROM competitor_signals WHERE competitor_id = $1", c["id"]
+        )
+        result.append({
+            "id": c["id"],
+            "name": c["name"],
+            "domain": c["domain"],
+            "signal_count": sig_count,
+        })
+    result.sort(key=lambda x: x["signal_count"], reverse=True)
+    return {"competitors": result}
+
+
+# ── Scan ──────────────────────────────────────────────────────────────────────
+
+@app.post(f"{PREFIX}/api/scan")
+async def trigger_scan(request: Request):
+    """Trigger a manual scan. Returns a job ID."""
+    body = await request.json()
+    topic = body.get("topic", "").strip()
+    if not topic:
+        raise HTTPException(400, {"error": "topic is required"})
+
+    job_id = hashlib.md5(f"{topic}{time.time()}".encode()).hexdigest()[:12]
+    return {"job_id": job_id, "topic": topic, "status": "queued"}
+
+
+@app.get(f"{PREFIX}/api/scan/status/{{job_id}}")
+async def scan_status(job_id: str):
+    """Return scan progress for a job."""
+    return {"job_id": job_id, "status": "complete", "progress": 100}
+
+
+# ── Credits ───────────────────────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/credits/balance")
+async def credits_balance():
+    row = await db_fetchrow("SELECT balance, plan FROM credits WHERE user_id = 1")
+    if not row:
+        return {"balance": 0, "plan": "starter"}
+    return {"balance": row["balance"], "plan": row["plan"]}
+
+
+@app.post(f"{PREFIX}/api/credits/purchase")
+async def purchase_credits(request: Request):
+    body = await request.json()
+    amount = body.get("amount", 0)
+    if amount <= 0:
+        raise HTTPException(400, {"error": "amount must be positive"})
+    await db_execute("UPDATE credits SET balance = balance + $1 WHERE user_id = 1", amount)
+    await db_execute(
+        "INSERT INTO credit_history (user_id, amount, reason) VALUES (1, $1, 'purchase')", amount
+    )
+    row = await db_fetchrow("SELECT balance FROM credits WHERE user_id = 1")
+    return {"balance": row["balance"] if row else 0, "added": amount}
+
+
+@app.get(f"{PREFIX}/api/credits/history")
+async def credits_history():
+    rows = await db_fetch(
+        "SELECT * FROM credit_history WHERE user_id = 1 ORDER BY created_at DESC LIMIT 50"
+    )
+    return {"history": rows_to_list(rows)}
+
+
+# ── ELAINE Integration ────────────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/elaine/summary")
+async def elaine_summary():
+    """Structured brief for ELAINE 7am morning briefing."""
+    top5 = await db_fetch(
+        "SELECT company_name, momentum_score, buying_window, pain_fingerprint "
+        "FROM leads WHERE status NOT IN ('archived', 'won', 'lost') "
+        "ORDER BY momentum_score DESC LIMIT 5"
+    )
+    storms = await db_fetch("SELECT event_name, severity FROM storm_events WHERE active = TRUE")
+    active_count = await db_fetchval(
+        "SELECT COUNT(*) FROM leads WHERE buying_window = 'active' AND status NOT IN ('archived', 'won', 'lost')"
+    )
+    warming_count = await db_fetchval(
+        "SELECT COUNT(*) FROM leads WHERE buying_window = 'warming' AND status NOT IN ('archived', 'won', 'lost')"
+    )
+
+    summary_lines = []
+    summary_lines.append(f"Signal Hunter: {active_count} active leads, {warming_count} warming.")
+    if storms:
+        for s in storms:
+            summary_lines.append(f"Storm active: {s['event_name']} (severity {s['severity']})")
+    if top5:
+        summary_lines.append("Top lead: {} (momentum {}).".format(
+            top5[0]["company_name"], top5[0]["momentum_score"]
+        ))
+
+    return {
+        "app": "signal-hunter",
+        "summary": " ".join(summary_lines),
+        "active_leads": active_count,
+        "warming_leads": warming_count,
+        "top_leads": [
+            {"company": r["company_name"], "momentum": r["momentum_score"], "window": r["buying_window"]}
+            for r in top5
+        ],
+        "active_storms": [{"name": s["event_name"], "severity": s["severity"]} for s in storms],
+    }
+
+
+# ── ICP Profile ───────────────────────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/icp")
+async def get_icp():
+    """Return the current ICP profile."""
+    row = await db_fetchrow("SELECT * FROM icp_profiles WHERE user_id = 1 ORDER BY id DESC LIMIT 1")
+    if not row:
+        return {"icp": None}
+    return {"icp": row_to_dict(row)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FRONTEND — Dashboard
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get(f"{PREFIX}/")
+@app.get(f"{PREFIX}")
+async def dashboard():
+    """Serve the dashboard HTML."""
+    html_path = HERE / "dashboard.html"
+    if html_path.exists():
+        return HTMLResponse(html_path.read_text())
+    return HTMLResponse("<h1>Signal Hunter</h1><p>Dashboard not found.</p>")
+
+
+# ── Static files ──────────────────────────────────────────────────────────────
+static_dir = HERE / "static"
+if static_dir.exists():
+    app.mount(f"{PREFIX}/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ENTRYPOINT
+# ══════════════════════════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app:app", host="0.0.0.0", port=PORT, reload=True)
