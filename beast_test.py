@@ -188,14 +188,20 @@ class TestCoreEngine:
         assert "ring" in blip
         assert "heat" in blip
 
-    def test_todays_top5(self):
-        """Happy: GET /signal/api/today returns top 5 leads."""
+    def test_todays_top_leads(self):
+        """Happy: GET /signal/api/today returns top leads with ELAINE format."""
         r = httpx.get(f"{BASE_URL}{PREFIX}/api/today", timeout=10)
         assert r.status_code == 200
         data = r.json()
-        assert "top5" in data
-        assert len(data["top5"]) <= 5
-        assert len(data["top5"]) > 0
+        assert "top_leads" in data
+        assert "total_leads_today" in data
+        assert "hot_leads" in data
+        assert "active_storms" in data
+        assert len(data["top_leads"]) <= 5
+        assert len(data["top_leads"]) > 0
+        lead = data["top_leads"][0]
+        assert "momentum_score" in lead
+        assert "buying_window" in lead
 
     def test_active_storms(self):
         """Happy: GET /signal/api/storms/active returns active storms."""
@@ -404,3 +410,132 @@ class TestErasureActions:
         data = r.json()
         assert "job_id" in data
         assert data["status"] == "queued"
+
+
+# ---------------------------------------------------------------------------
+# SECTION 9: PHASE 2 — INTELLIGENCE LAYER (12 tests)
+# ---------------------------------------------------------------------------
+class TestNarrativeShiftDetection:
+    """Phase 2B: Narrative Shift Detection."""
+
+    def test_narrative_shifts_list(self):
+        """Happy: GET /signal/api/narrative-shifts returns shift list."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/narrative-shifts", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "shifts" in data
+        assert "count" in data
+        assert isinstance(data["shifts"], list)
+
+    def test_analyse_narrative(self):
+        """Happy: POST analyse-narrative for lead 1 returns stage."""
+        r = httpx.post(f"{BASE_URL}{PREFIX}/api/leads/1/analyse-narrative", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert data["lead_id"] == 1
+        assert "narrative_stage" in data
+        assert data["narrative_stage"] in ("exploratory", "urgent", "transitioning", "unknown")
+        assert "shift_detected" in data
+        assert isinstance(data["shift_detected"], bool)
+
+    def test_analyse_narrative_not_found(self):
+        """Edge: analyse-narrative for non-existent lead returns 404."""
+        r = httpx.post(f"{BASE_URL}{PREFIX}/api/leads/99999/analyse-narrative", timeout=10)
+        assert r.status_code == 404
+
+
+class TestSilenceDetection:
+    """Phase 2C: Silence Detection."""
+
+    def test_silence_list(self):
+        """Happy: GET /signal/api/silence returns silent leads."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/silence", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "silent_leads" in data
+        assert "count" in data
+
+    def test_silence_scan(self):
+        """Happy: POST /signal/api/silence/scan detects silent entities."""
+        r = httpx.post(f"{BASE_URL}{PREFIX}/api/silence/scan", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "detected" in data
+        assert "count" in data
+
+    def test_posting_history(self):
+        """Happy: GET /signal/api/posting-history returns entities."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/posting-history", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "entities" in data
+        assert len(data["entities"]) > 0
+
+
+class TestJobAdArchaeology:
+    """Phase 2D: Ghost Signal Enhancement — Job Ad Parsing."""
+
+    def test_parse_job_ad(self):
+        """Happy: POST parse-job-ad extracts intelligence."""
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/leads/1/parse-job-ad",
+            json={"job_text": "Senior Cloud Architect needed. Must have AWS and Azure. Reporting to CTO. Legacy migration."},
+            timeout=10,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["lead_id"] == 1
+        assert "parsed" in data
+        parsed = data["parsed"]
+        assert "implied_pain" in parsed
+        assert "tech_stack" in parsed
+        assert "aws" in parsed["tech_stack"]
+
+    def test_parse_job_ad_too_short(self):
+        """Negative: POST parse-job-ad with short text returns 400."""
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/leads/1/parse-job-ad",
+            json={"job_text": "Short"},
+            timeout=10,
+        )
+        assert r.status_code == 400
+
+
+class TestAntiSignalFilter:
+    """Phase 2E: Anti-Signal Filter (Adversarial Qualification)."""
+
+    def test_anti_signals_list(self):
+        """Happy: GET /signal/api/anti-signals returns flagged leads."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/anti-signals", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "flagged_leads" in data
+        assert "count" in data
+
+    def test_qualify_clean_lead(self):
+        """Happy: POST qualify with no flags returns clean result."""
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/leads/2/qualify",
+            timeout=10,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["lead_id"] == 2
+        assert data["archived"] is False
+
+    def test_qualify_not_found(self):
+        """Edge: POST qualify for non-existent lead returns 404."""
+        r = httpx.post(f"{BASE_URL}{PREFIX}/api/leads/99999/qualify", timeout=10)
+        assert r.status_code == 404
+
+
+class TestWinPatterns:
+    """Phase 2A: Reverse Signal Pattern Engine."""
+
+    def test_win_patterns_list(self):
+        """Happy: GET /signal/api/patterns/wins returns pattern list."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/patterns/wins", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "patterns" in data
+        assert isinstance(data["patterns"], list)

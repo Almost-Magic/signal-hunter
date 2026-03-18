@@ -407,8 +407,13 @@ def buying_window_label(days: int) -> str:
 # ── Leads ─────────────────────────────────────────────────────────────────────
 
 @app.get(f"{PREFIX}/api/leads")
-async def list_leads(status: Optional[str] = None, industry: Optional[str] = None, limit: int = 50):
-    """Return leads ranked by Momentum Score."""
+async def list_leads(
+    status: Optional[str] = None,
+    industry: Optional[str] = None,
+    match_patterns: bool = False,
+    limit: int = 50,
+):
+    """Return leads ranked by Momentum Score. match_patterns=true ranks by win template similarity."""
     conditions = ["1=1"]
     args = []
     idx = 1
@@ -427,7 +432,41 @@ async def list_leads(status: Optional[str] = None, industry: Optional[str] = Non
         f"SELECT * FROM leads WHERE {where} ORDER BY momentum_score DESC LIMIT ${idx}",
         *args, limit,
     )
-    return {"leads": rows_to_list(rows), "count": len(rows)}
+    leads = rows_to_list(rows)
+
+    if match_patterns and leads:
+        templates = await db_fetch("SELECT signal_sequence, industry FROM win_templates")
+        if templates:
+            win_industries = {t["industry"] for t in templates if t["industry"]}
+            win_signal_types = set()
+            for t in templates:
+                seq = t["signal_sequence"]
+                if isinstance(seq, str):
+                    try:
+                        seq = json.loads(seq)
+                    except Exception:
+                        seq = []
+                if isinstance(seq, list):
+                    for s in seq:
+                        if isinstance(s, dict):
+                            win_signal_types.add(s.get("type", ""))
+
+            for lead in leads:
+                match_score = 0
+                if lead.get("industry") in win_industries:
+                    match_score += 30
+                lead_signals = await db_fetch(
+                    "SELECT signal_type FROM signals WHERE lead_id = $1", lead["id"]
+                )
+                lead_types = {s["signal_type"] for s in lead_signals}
+                overlap = lead_types & win_signal_types
+                if overlap:
+                    match_score += min(len(overlap) * 15, 70)
+                lead["pattern_match_score"] = match_score
+
+            leads.sort(key=lambda x: x.get("pattern_match_score", 0), reverse=True)
+
+    return {"leads": leads, "count": len(leads)}
 
 
 @app.get(f"{PREFIX}/api/leads/{{lead_id}}")
@@ -544,11 +583,14 @@ async def record_outcome(lead_id: int, request: Request):
             "SELECT signal_type, source FROM signals WHERE lead_id = $1 ORDER BY detected_at", lead_id
         )
         sequence = [{"type": s["signal_type"], "source": s["source"]} for s in signals]
-        lead_row = await db_fetchrow("SELECT industry, company_size FROM leads WHERE id = $1", lead_id)
+        lead_row = await db_fetchrow(
+            "SELECT industry, company_size, pain_fingerprint, narrative_stage FROM leads WHERE id = $1",
+            lead_id,
+        )
         await db_execute(
             "INSERT INTO win_templates (lead_id, signal_sequence, industry, company_size, win_value) "
-            "VALUES ($1, $2, $3, $4, $5)",
-            lead_id, str(sequence), lead_row["industry"] if lead_row else None,
+            "VALUES ($1, $2::jsonb, $3, $4, $5)",
+            lead_id, json.dumps(sequence), lead_row["industry"] if lead_row else None,
             lead_row["company_size"] if lead_row else None, value,
         )
 
@@ -632,7 +674,7 @@ async def get_radar(industry: Optional[str] = None):
 
 @app.get(f"{PREFIX}/api/today")
 async def todays_top5():
-    """Return today's top 5 leads ranked by Momentum Score."""
+    """Return today's top leads ranked by Momentum Score, with fleet summary."""
     rows = await db_fetch(
         "SELECT id, company_name, industry, momentum_score, fit_score, intent_velocity, "
         "velocity_trend, buying_window, pain_fingerprint, communication_style, outreach_a, "
@@ -640,24 +682,46 @@ async def todays_top5():
         "FROM leads WHERE status NOT IN ('archived', 'won', 'lost') "
         "ORDER BY momentum_score DESC LIMIT 5"
     )
-    top5 = []
+    top_leads = []
     for r in rows:
         pain = (r["pain_fingerprint"] or "")[:120]
-        top5.append({
+        bw = r["buying_window"] or "pipeline"
+        bw_label = "0-30d" if bw == "active" else ("31-90d" if bw == "warming" else "90+d")
+        top_leads.append({
             "id": r["id"],
             "company": r["company_name"],
             "industry": r["industry"],
-            "momentum": r["momentum_score"] or 0,
+            "momentum_score": r["momentum_score"] or 0,
             "fit": r["fit_score"] or 0,
             "velocity_trend": r["velocity_trend"] or "steady",
-            "buying_window": r["buying_window"] or "pipeline",
+            "buying_window": bw_label,
             "pain_summary": pain,
+            "signal_count": r["signal_count"] or 0,
             "outreach_a": r["outreach_a"],
             "deal_value": r["expected_deal_value"] or 0,
             "close_probability": r["close_probability"] or 0,
             "expected_value": r["expected_value"] or 0,
         })
-    return {"top5": top5, "date": date.today().isoformat()}
+
+    # Aggregate counts
+    totals = await db_fetch(
+        "SELECT COUNT(*) as total, "
+        "SUM(CASE WHEN momentum_score >= 70 THEN 1 ELSE 0 END) as hot "
+        "FROM leads WHERE status NOT IN ('archived', 'won', 'lost')"
+    )
+    total_leads = totals[0]["total"] if totals else 0
+    hot_leads = totals[0]["hot"] if totals else 0
+
+    storms = await db_fetch("SELECT COUNT(*) as cnt FROM storm_events WHERE active = TRUE")
+    active_storms = storms[0]["cnt"] if storms else 0
+
+    return {
+        "date": date.today().isoformat(),
+        "top_leads": top_leads,
+        "total_leads_today": total_leads,
+        "hot_leads": hot_leads,
+        "active_storms": active_storms,
+    }
 
 
 # ── Storms ────────────────────────────────────────────────────────────────────
@@ -699,7 +763,324 @@ async def get_velocity(entity_id: str):
 async def get_win_patterns():
     """Return the user's win templates — reverse signal patterns."""
     rows = await db_fetch("SELECT * FROM win_templates ORDER BY created_at DESC LIMIT 20")
-    return {"patterns": rows_to_list(rows)}
+    templates = []
+    for r in rows:
+        d = row_to_dict(r)
+        seq = d.get("signal_sequence")
+        if isinstance(seq, str):
+            try:
+                d["signal_sequence"] = json.loads(seq)
+            except Exception:
+                pass
+        templates.append(d)
+    return {"patterns": templates}
+
+
+# ── Phase 2: Intelligence Layer ──────────────────────────────────────────────
+
+
+# 2B: Narrative Shift Detection
+
+EXPLORATORY_KEYWORDS = [
+    "exploring", "evaluating", "looking at", "has anyone", "considering",
+    "thinking about", "researching", "curious about", "anyone used",
+]
+URGENT_KEYWORDS = [
+    "we must", "before q3", "before q4", "board has mandated", "critical",
+    "urgent", "deadline", "immediately", "can't wait", "asap", "running out of time",
+    "compliance deadline", "audit coming", "regulator", "must have by",
+]
+
+
+def detect_narrative_stage(text: str) -> tuple[str, bool]:
+    """Detect narrative stage from text. Returns (stage, shift_detected)."""
+    if not text:
+        return "unknown", False
+    lower = text.lower()
+    urgent_hits = sum(1 for kw in URGENT_KEYWORDS if kw in lower)
+    exploratory_hits = sum(1 for kw in EXPLORATORY_KEYWORDS if kw in lower)
+
+    if urgent_hits >= 2:
+        return "urgent", True
+    elif urgent_hits == 1 and exploratory_hits == 0:
+        return "urgent", True
+    elif exploratory_hits >= 1 and urgent_hits == 0:
+        return "exploratory", False
+    elif urgent_hits >= 1 and exploratory_hits >= 1:
+        return "transitioning", True
+    return "unknown", False
+
+
+@app.post(f"{PREFIX}/api/leads/{{lead_id}}/analyse-narrative")
+async def analyse_narrative(lead_id: int):
+    """Analyse a lead's signals for narrative shift (exploratory → urgent)."""
+    lead = await db_fetchrow("SELECT id, pain_fingerprint, momentum_score FROM leads WHERE id = $1", lead_id)
+    if not lead:
+        raise HTTPException(404, {"error": "Lead not found"})
+
+    signals = await db_fetch(
+        "SELECT content FROM signals WHERE lead_id = $1 ORDER BY detected_at", lead_id
+    )
+    combined_text = " ".join(s["content"] or "" for s in signals)
+    combined_text += " " + (lead["pain_fingerprint"] or "")
+
+    stage, shift = detect_narrative_stage(combined_text)
+    momentum_boost = 10 if shift else 0
+    new_momentum = min(100, (lead["momentum_score"] or 0) + momentum_boost)
+
+    await db_execute(
+        "UPDATE leads SET narrative_stage = $2, narrative_shift_detected = $3, "
+        "momentum_score = CASE WHEN $3 = TRUE THEN GREATEST(momentum_score, $4) ELSE momentum_score END "
+        "WHERE id = $1",
+        lead_id, stage, shift, new_momentum,
+    )
+
+    return {
+        "lead_id": lead_id,
+        "narrative_stage": stage,
+        "shift_detected": shift,
+        "momentum_boost": momentum_boost,
+    }
+
+
+@app.get(f"{PREFIX}/api/narrative-shifts")
+async def get_narrative_shifts():
+    """Return leads with detected narrative shifts."""
+    rows = await db_fetch(
+        "SELECT id, company_name, industry, momentum_score, narrative_stage, narrative_shift_detected "
+        "FROM leads WHERE narrative_shift_detected = TRUE ORDER BY momentum_score DESC"
+    )
+    return {"shifts": rows_to_list(rows), "count": len(rows)}
+
+
+# 2C: Silence Detection
+
+@app.get(f"{PREFIX}/api/silence")
+async def get_silence_signals():
+    """Return entities with detected silence signals."""
+    rows = await db_fetch(
+        "SELECT id, company_name, industry, momentum_score, silence_detected, silence_reason "
+        "FROM leads WHERE silence_detected = TRUE ORDER BY momentum_score DESC"
+    )
+    return {"silent_leads": rows_to_list(rows), "count": len(rows)}
+
+
+@app.post(f"{PREFIX}/api/silence/scan")
+async def scan_silence():
+    """Scan entity posting history for silence signals (14+ days quiet for active posters)."""
+    today = date.today()
+    entities = await db_fetch("SELECT * FROM entity_posting_history WHERE avg_posts_per_week >= 2.0")
+    detected = []
+    for e in entities:
+        if not e["last_post_date"]:
+            continue
+        days_silent = (today - e["last_post_date"]).days
+        if days_silent >= 14:
+            reason = (
+                f"Usually {e['avg_posts_per_week']:.1f} posts/week, "
+                f"silent {days_silent} days — potential internal disruption or decision in progress"
+            )
+            # Try to match to a lead
+            lead = await db_fetchrow(
+                "SELECT id FROM leads WHERE company_name = $1 AND status NOT IN ('archived', 'won', 'lost')",
+                e["company_name"],
+            )
+            if lead:
+                await db_execute(
+                    "UPDATE leads SET silence_detected = TRUE, silence_reason = $2 WHERE id = $1",
+                    lead["id"], reason,
+                )
+            detected.append({
+                "entity_id": e["entity_id"],
+                "company_name": e["company_name"],
+                "days_silent": days_silent,
+                "avg_posts_per_week": e["avg_posts_per_week"],
+                "reason": reason,
+                "lead_id": lead["id"] if lead else None,
+            })
+    return {"detected": detected, "count": len(detected)}
+
+
+@app.get(f"{PREFIX}/api/posting-history")
+async def get_posting_history():
+    """Return entity posting history for monitoring."""
+    rows = await db_fetch("SELECT * FROM entity_posting_history ORDER BY company_name")
+    return {"entities": rows_to_list(rows)}
+
+
+# 2D: Ghost Signal Enhancement — Job Ad Archaeology
+
+@app.post(f"{PREFIX}/api/leads/{{lead_id}}/parse-job-ad")
+async def parse_job_ad(lead_id: int, request: Request):
+    """Parse a job ad to extract intelligence: implied pain, budget proof, decision maker, tech stack."""
+    lead = await db_fetchrow("SELECT id, company_name FROM leads WHERE id = $1", lead_id)
+    if not lead:
+        raise HTTPException(404, {"error": "Lead not found"})
+
+    body = await request.json()
+    job_text = body.get("job_text", "")
+    if not job_text or len(job_text) < 20:
+        raise HTTPException(400, {"error": "job_text must be at least 20 characters"})
+
+    # Parse intelligence from job ad text
+    lower = job_text.lower()
+    parsed = {
+        "implied_pain": [],
+        "budget_proof": None,
+        "decision_maker": None,
+        "tech_stack": [],
+        "raw_text_length": len(job_text),
+    }
+
+    # Implied pain extraction
+    pain_indicators = [
+        ("governance gap", ["governance", "compliance", "regulatory"]),
+        ("security weakness", ["security", "cyber", "vulnerability", "penetration"]),
+        ("data management chaos", ["data governance", "data quality", "data management"]),
+        ("scaling challenge", ["scaling", "growth", "expanding", "rapid growth"]),
+        ("technical debt", ["modernise", "modernize", "legacy", "migration", "transformation"]),
+        ("process failure", ["process improvement", "workflow", "automation", "streamline"]),
+    ]
+    for pain_name, keywords in pain_indicators:
+        if any(kw in lower for kw in keywords):
+            parsed["implied_pain"].append(pain_name)
+
+    # Budget proof — permanent hire signals real budget
+    if any(kw in lower for kw in ["permanent", "full-time", "full time", "ongoing"]):
+        parsed["budget_proof"] = "permanent_hire"
+    elif any(kw in lower for kw in ["contract", "fixed term", "6 month", "12 month"]):
+        parsed["budget_proof"] = "contract_hire"
+
+    # Decision maker — reporting line
+    reporting_patterns = [
+        "reports to", "reporting to", "report to", "reporting line",
+        "cto", "cio", "ciso", "cfo", "head of", "director of", "vp of",
+    ]
+    for pattern in reporting_patterns:
+        idx = lower.find(pattern)
+        if idx >= 0:
+            snippet = job_text[idx:idx + 60].strip()
+            parsed["decision_maker"] = snippet
+            break
+
+    # Tech stack extraction
+    tech_keywords = [
+        "aws", "azure", "gcp", "python", "java", "react", "docker", "kubernetes",
+        "terraform", "ansible", "splunk", "crowdstrike", "sentinel", "datadog",
+        "salesforce", "servicenow", "jira", "confluence", "power bi", "tableau",
+        "postgresql", "mongodb", "elasticsearch", "redis", "kafka",
+    ]
+    for tech in tech_keywords:
+        if tech in lower:
+            parsed["tech_stack"].append(tech)
+
+    # Store parsed intelligence
+    existing_json = await db_fetchval(
+        "SELECT pain_fingerprint_json FROM leads WHERE id = $1", lead_id
+    )
+    fingerprint = existing_json if isinstance(existing_json, dict) else {}
+    fingerprint["job_ad_intelligence"] = parsed
+
+    await db_execute(
+        "UPDATE leads SET pain_fingerprint_json = $2::jsonb WHERE id = $1",
+        lead_id, json.dumps(fingerprint),
+    )
+
+    return {"lead_id": lead_id, "parsed": parsed}
+
+
+# 2E: Anti-Signal Filter (Adversarial Qualification)
+
+@app.post(f"{PREFIX}/api/leads/{{lead_id}}/qualify")
+async def adversarial_qualify(lead_id: int, request: Request):
+    """Run adversarial qualification on a lead — flag sinking ships, budget freezes, chronic complainers."""
+    lead = await db_fetchrow(
+        "SELECT id, company_name, pain_fingerprint, created_at FROM leads WHERE id = $1",
+        lead_id,
+    )
+    if not lead:
+        raise HTTPException(404, {"error": "Lead not found"})
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    flags = {
+        "sinking_ship": False,
+        "budget_freeze": False,
+        "chronic_complainer": False,
+        "reason": None,
+    }
+
+    # Check sinking ship indicators
+    layoffs = body.get("has_layoffs", False)
+    negative_reviews = body.get("negative_management_reviews", False)
+    if layoffs and negative_reviews:
+        flags["sinking_ship"] = True
+        flags["reason"] = "Company has layoffs + negative management reviews — sinking ship"
+
+    # Check budget freeze
+    job_removed = body.get("job_ad_removed", False)
+    if job_removed:
+        flags["budget_freeze"] = True
+        flags["reason"] = (flags.get("reason", "") or "") + "; Job ad posted then removed — budget freeze suspected"
+
+    # Check chronic complainer — same pain 18+ months without acting
+    months_since_first_signal = body.get("months_since_first_signal", 0)
+    no_action_taken = body.get("no_action_taken", True)
+    if months_since_first_signal >= 18 and no_action_taken:
+        flags["chronic_complainer"] = True
+        flags["reason"] = (
+            (flags.get("reason", "") or "") +
+            f"; Same pain reported for {months_since_first_signal} months without acting — chronic complainer"
+        )
+
+    if flags["reason"]:
+        flags["reason"] = flags["reason"].lstrip("; ")
+
+    # Auto-archive if any anti-signal flag is set
+    should_archive = flags["sinking_ship"] or flags["budget_freeze"] or flags["chronic_complainer"]
+
+    await db_execute(
+        "UPDATE leads SET sinking_ship = $2, budget_freeze = $3, chronic_complainer = $4, "
+        "anti_signal_reason = $5, status = CASE WHEN $6 = TRUE THEN 'archived' ELSE status END "
+        "WHERE id = $1",
+        lead_id, flags["sinking_ship"], flags["budget_freeze"],
+        flags["chronic_complainer"], flags["reason"],
+        should_archive,
+    )
+
+    return {
+        "lead_id": lead_id,
+        "flags": flags,
+        "archived": should_archive,
+    }
+
+
+@app.get(f"{PREFIX}/api/anti-signals")
+async def get_anti_signals():
+    """Return all leads flagged by the anti-signal filter (archived but reviewable)."""
+    rows = await db_fetch(
+        "SELECT id, company_name, industry, sinking_ship, budget_freeze, "
+        "chronic_complainer, anti_signal_reason, status "
+        "FROM leads WHERE sinking_ship = TRUE OR budget_freeze = TRUE OR chronic_complainer = TRUE "
+        "ORDER BY company_name"
+    )
+    return {"flagged_leads": rows_to_list(rows), "count": len(rows)}
+
+
+@app.post(f"{PREFIX}/api/anti-signals/{{lead_id}}/restore")
+async def restore_anti_signal_lead(lead_id: int):
+    """Restore an anti-signal archived lead for manual review."""
+    lead = await db_fetchrow("SELECT id FROM leads WHERE id = $1", lead_id)
+    if not lead:
+        raise HTTPException(404, {"error": "Lead not found"})
+    await db_execute(
+        "UPDATE leads SET status = 'new', sinking_ship = FALSE, budget_freeze = FALSE, "
+        "chronic_complainer = FALSE, anti_signal_reason = NULL WHERE id = $1",
+        lead_id,
+    )
+    return {"lead_id": lead_id, "restored": True}
 
 
 # ── Competitors ───────────────────────────────────────────────────────────────
