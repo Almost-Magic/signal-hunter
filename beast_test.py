@@ -12,6 +12,7 @@ negative paths, NGINX subpath, and security.
 Almost Magic Tech Lab
 """
 
+import time
 import pytest
 import httpx
 
@@ -539,3 +540,180 @@ class TestWinPatterns:
         data = r.json()
         assert "patterns" in data
         assert isinstance(data["patterns"], list)
+
+
+# ---------------------------------------------------------------------------
+# SECTION 10: PHASE 3 — ADVANCED SIGNALS (18 tests)
+# ---------------------------------------------------------------------------
+class TestCompetitorLeaderboard:
+    """Phase 3A: Competitor Displacement Leaderboard."""
+
+    def test_leaderboard(self):
+        """Happy: GET /signal/api/competitors/leaderboard returns ranked list."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/competitors/leaderboard", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "leaderboard" in data
+        assert "count" in data
+        assert "window_days" in data
+        assert len(data["leaderboard"]) > 0
+        top = data["leaderboard"][0]
+        assert "displacement_score" in top
+        assert "event_count_30d" in top
+        assert "event_breakdown" in top
+
+    def test_add_competitor(self):
+        """Happy: POST /signal/api/competitors adds a new competitor."""
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/competitors",
+            json={"name": f"TestComp_{int(time.time())}", "domain": "test.com"},
+            timeout=10,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["created"] is True
+        assert "id" in data
+
+    def test_add_competitor_no_name(self):
+        """Negative: POST competitor without name returns 400."""
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/competitors",
+            json={"domain": "test.com"},
+            timeout=10,
+        )
+        assert r.status_code == 400
+
+    def test_competitor_events(self):
+        """Happy: GET /signal/api/competitors/{name}/events returns event list."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/competitors/DataSecure/events", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "events" in data
+        assert "count" in data
+        assert data["competitor"] == "DataSecure"
+
+    def test_competitor_events_not_found(self):
+        """Edge: GET events for unknown competitor returns 404."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/competitors/nonexistent/events", timeout=10)
+        assert r.status_code == 404
+
+
+class TestTalentExodus:
+    """Phase 3B: Talent Exodus Leading Indicator."""
+
+    def test_talent_exodus(self):
+        """Happy: GET talent-exodus for competitor returns analysis."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/competitors/DataSecure/talent-exodus", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "total_departures" in data
+        assert "senior_departures_60d" in data
+        assert "vulnerability_alert" in data
+        assert "departures" in data
+
+    def test_talent_exodus_not_found(self):
+        """Edge: talent-exodus for unknown competitor returns 404."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/competitors/nonexistent/talent-exodus", timeout=10)
+        assert r.status_code == 404
+
+    def test_vulnerable_clients(self):
+        """Happy: GET vulnerable-clients returns at-risk competitors."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/competitors/vulnerable-clients", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "vulnerable_competitors" in data
+        assert "count" in data
+
+
+class TestStormSeverity:
+    """Phase 3C: Industry Storm Severity Index."""
+
+    def test_storms_list(self):
+        """Happy: GET /signal/api/storms returns all storms with severity."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/storms", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "storms" in data
+        assert "count" in data
+        if data["count"] > 0:
+            assert "computed_severity" in data["storms"][0]
+
+    def test_create_storm(self):
+        """Happy: POST /signal/api/storms creates a storm event."""
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/storms",
+            json={
+                "event_name": f"Test Storm {int(time.time())}",
+                "industry": "Technology",
+                "severity": 5,
+            },
+            timeout=10,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["created"] is True
+        assert "id" in data
+
+    def test_create_storm_invalid_severity(self):
+        """Negative: POST storm with severity > 10 returns 400."""
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/storms",
+            json={"event_name": "Bad Storm", "severity": 15},
+            timeout=10,
+        )
+        assert r.status_code == 400
+
+    def test_storm_leads(self):
+        """Happy: GET /signal/api/storms/1/leads returns affected leads."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/storms/1/leads", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "storm" in data
+        assert "directly_linked" in data
+        assert "total_affected" in data
+
+    def test_storm_leads_not_found(self):
+        """Edge: GET storm leads for non-existent storm returns 404."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/storms/99999/leads", timeout=10)
+        assert r.status_code == 404
+
+    def test_war_room_triggers(self):
+        """Happy: GET storms/active includes war_room_triggers list."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/storms/active", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "war_room_triggers" in data
+        assert isinstance(data["war_room_triggers"], list)
+
+
+class TestSaturationIndex:
+    """Phase 3D: Opportunity Saturation Index."""
+
+    def test_saturation_breakdown(self):
+        """Happy: GET /signal/api/leads/saturation returns grouped leads."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/leads/saturation", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "low_saturation" in data
+        assert "medium_saturation" in data
+        assert "high_saturation" in data
+        assert "counts" in data
+        # High-saturation leads should have momentum modifier
+        for lead in data["high_saturation"]:
+            assert lead["momentum_modifier"] == "-15%"
+
+
+class TestFirstMover:
+    """Phase 3E: First Mover Alert."""
+
+    def test_first_movers_list(self):
+        """Happy: GET /signal/api/leads/first-movers returns first-mover leads."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/leads/first-movers", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "first_movers" in data
+        assert "count" in data
+        if data["count"] > 0:
+            fm = data["first_movers"][0]
+            assert fm["competitor_seen_count"] == 0
+            assert fm["first_mover"] is True

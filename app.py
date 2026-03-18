@@ -469,6 +469,52 @@ async def list_leads(
     return {"leads": leads, "count": len(leads)}
 
 
+# ── Phase 3 lead sub-routes (must be before {lead_id} parametric route) ──────
+
+@app.get(f"{PREFIX}/api/leads/saturation")
+async def leads_by_saturation():
+    """Return leads grouped by saturation level with momentum impact."""
+    rows = await db_fetch(
+        "SELECT id, company_name, industry, momentum_score, saturation_index, first_mover "
+        "FROM leads WHERE status NOT IN ('archived', 'won', 'lost') ORDER BY momentum_score DESC"
+    )
+    low, medium, high = [], [], []
+    for r in rows:
+        d = row_to_dict(r)
+        sat = d.get("saturation_index", 0) or 0
+        if sat < 0.3:
+            d["saturation_level"] = "low"
+            d["momentum_modifier"] = "none"
+            low.append(d)
+        elif sat < 0.7:
+            d["saturation_level"] = "medium"
+            d["momentum_modifier"] = "none"
+            medium.append(d)
+        else:
+            d["saturation_level"] = "high"
+            d["momentum_modifier"] = "-15%"
+            high.append(d)
+    return {
+        "low_saturation": low,
+        "medium_saturation": medium,
+        "high_saturation": high,
+        "counts": {"low": len(low), "medium": len(medium), "high": len(high)},
+    }
+
+
+@app.get(f"{PREFIX}/api/leads/first-movers")
+async def first_mover_leads():
+    """Return leads where we are the first mover (no competitor has seen them)."""
+    rows = await db_fetch(
+        "SELECT l.id, l.company_name, l.industry, l.momentum_score, l.first_mover, "
+        "l.saturation_index, f.first_detected_at, f.competitor_seen_count "
+        "FROM leads l JOIN lead_first_seen f ON l.id = f.lead_id "
+        "WHERE f.competitor_seen_count = 0 AND l.status NOT IN ('archived', 'won', 'lost') "
+        "ORDER BY l.momentum_score DESC"
+    )
+    return {"first_movers": rows_to_list(rows), "count": len(rows)}
+
+
 @app.get(f"{PREFIX}/api/leads/{{lead_id}}")
 async def get_lead(lead_id: int):
     """Return full lead with signals and committee."""
@@ -728,20 +774,24 @@ async def todays_top5():
 
 @app.get(f"{PREFIX}/api/storms/active")
 async def active_storms():
-    """Return currently active Industry Storms."""
+    """Return currently active Industry Storms. Storms with severity >= 7 trigger War Room mode."""
     rows = await db_fetch(
         "SELECT * FROM storm_events WHERE active = TRUE ORDER BY severity DESC"
     )
     storms = []
+    war_room = []
     for r in rows:
         d = row_to_dict(r)
+        d["computed_severity"] = compute_storm_severity(d)
         if r["window_closes"]:
             delta = r["window_closes"] - date.today()
             d["days_remaining"] = max(delta.days, 0)
         else:
             d["days_remaining"] = None
         storms.append(d)
-    return {"storms": storms, "count": len(storms)}
+        if d["severity"] >= 7:
+            war_room.append({"id": d["id"], "event_name": d["event_name"], "severity": d["severity"]})
+    return {"storms": storms, "count": len(storms), "war_room_triggers": war_room}
 
 
 # ── Velocity ──────────────────────────────────────────────────────────────────
@@ -1083,11 +1133,34 @@ async def restore_anti_signal_lead(lead_id: int):
     return {"lead_id": lead_id, "restored": True}
 
 
-# ── Competitors ───────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 3 — ADVANCED SIGNALS
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+# ── 3A: Competitor Displacement Leaderboard ──────────────────────────────────
+
+SEVERITY_WEIGHTS = {
+    "negative_review": 6,
+    "linkedin_complaint": 5,
+    "talent_departure": 7,
+    "funding_down": 4,
+    "layoff": 9,
+}
+
+
+def compute_displacement_score(events: list) -> float:
+    """Compute displacement score (0-100) from recent competitor events."""
+    if not events:
+        return 0.0
+    total = sum(e.get("severity", 3) for e in events)
+    # Scale: 50 severity points = score 100
+    return min(round(total / 50 * 100, 1), 100)
+
 
 @app.get(f"{PREFIX}/api/competitors")
 async def get_competitors():
-    """Return competitor displacement leaderboard."""
+    """Return all monitored competitors with signal counts."""
     comps = await db_fetch("SELECT * FROM competitors ORDER BY name")
     result = []
     for c in comps:
@@ -1102,6 +1175,314 @@ async def get_competitors():
         })
     result.sort(key=lambda x: x["signal_count"], reverse=True)
     return {"competitors": result}
+
+
+@app.get(f"{PREFIX}/api/competitors/leaderboard")
+async def competitor_leaderboard():
+    """Ranked competitor displacement leaderboard — scored on negative signals in last 30 days."""
+    comps = await db_fetch("SELECT * FROM competitors ORDER BY name")
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    board = []
+    for c in comps:
+        events = await db_fetch(
+            "SELECT event_type, severity, title, detected_at FROM competitor_signals "
+            "WHERE competitor_id = $1 AND detected_at >= $2 ORDER BY detected_at DESC",
+            c["id"], cutoff,
+        )
+        event_list = rows_to_list(events)
+        score = compute_displacement_score(event_list)
+        event_breakdown = {}
+        for e in event_list:
+            et = e.get("event_type", "general")
+            event_breakdown[et] = event_breakdown.get(et, 0) + 1
+        board.append({
+            "id": c["id"],
+            "name": c["name"],
+            "domain": c["domain"],
+            "displacement_score": score,
+            "event_count_30d": len(event_list),
+            "event_breakdown": event_breakdown,
+            "latest_event": event_list[0]["title"] if event_list else None,
+        })
+    board.sort(key=lambda x: x["displacement_score"], reverse=True)
+    return {"leaderboard": board, "count": len(board), "window_days": 30}
+
+
+@app.post(f"{PREFIX}/api/competitors")
+async def add_competitor(request: Request):
+    """Add a competitor to monitor."""
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(400, {"error": "name is required"})
+    domain = body.get("domain", "").strip() or None
+    notes = body.get("notes", "").strip() or None
+    existing = await db_fetchrow("SELECT id FROM competitors WHERE LOWER(name) = LOWER($1)", name)
+    if existing:
+        raise HTTPException(409, {"error": f"Competitor '{name}' already exists", "id": existing["id"]})
+    row = await db_fetchrow(
+        "INSERT INTO competitors (name, domain, notes) VALUES ($1, $2, $3) RETURNING id",
+        name, domain, notes,
+    )
+    return {"id": row["id"], "name": name, "created": True}
+
+
+@app.get(f"{PREFIX}/api/competitors/{{name}}/events")
+async def get_competitor_events(name: str):
+    """Return all events for a named competitor."""
+    comp = await db_fetchrow("SELECT id, name FROM competitors WHERE LOWER(name) = LOWER($1)", name)
+    if not comp:
+        raise HTTPException(404, {"error": f"Competitor '{name}' not found"})
+    events = await db_fetch(
+        "SELECT * FROM competitor_signals WHERE competitor_id = $1 ORDER BY detected_at DESC",
+        comp["id"],
+    )
+    return {
+        "competitor": comp["name"],
+        "events": rows_to_list(events),
+        "count": len(events),
+    }
+
+
+# ── 3B: Talent Exodus Leading Indicator ──────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/competitors/{{name}}/talent-exodus")
+async def talent_exodus(name: str):
+    """Return talent departure analysis for a competitor."""
+    comp = await db_fetchrow("SELECT id, name FROM competitors WHERE LOWER(name) = LOWER($1)", name)
+    if not comp:
+        raise HTTPException(404, {"error": f"Competitor '{name}' not found"})
+
+    cutoff_60d = datetime.now(timezone.utc) - timedelta(days=60)
+    departures = await db_fetch(
+        "SELECT * FROM talent_departures WHERE competitor_id = $1 ORDER BY detected_at DESC",
+        comp["id"],
+    )
+    recent_senior = [
+        d for d in departures
+        if d["seniority"] in ("senior", "executive") and d["detected_at"] >= cutoff_60d
+    ]
+    vulnerability_alert = len(recent_senior) >= 3
+
+    return {
+        "competitor": comp["name"],
+        "total_departures": len(departures),
+        "senior_departures_60d": len(recent_senior),
+        "vulnerability_alert": vulnerability_alert,
+        "departures": rows_to_list(departures),
+    }
+
+
+@app.get(f"{PREFIX}/api/competitors/vulnerable-clients")
+async def vulnerable_clients():
+    """Return competitors whose clients are most at risk based on talent exodus patterns."""
+    comps = await db_fetch("SELECT * FROM competitors ORDER BY name")
+    cutoff_60d = datetime.now(timezone.utc) - timedelta(days=60)
+    vulnerable = []
+    for c in comps:
+        senior_deps = await db_fetch(
+            "SELECT * FROM talent_departures WHERE competitor_id = $1 "
+            "AND seniority IN ('senior', 'executive') AND detected_at >= $2",
+            c["id"], cutoff_60d,
+        )
+        if len(senior_deps) >= 3:
+            vulnerable.append({
+                "competitor": c["name"],
+                "senior_departures_60d": len(senior_deps),
+                "roles_lost": [d["role_title"] for d in senior_deps],
+                "vulnerability_alert": True,
+            })
+    vulnerable.sort(key=lambda x: x["senior_departures_60d"], reverse=True)
+    return {"vulnerable_competitors": vulnerable, "count": len(vulnerable)}
+
+
+# ── 3C: Industry Storm Severity Index ────────────────────────────────────────
+
+REGULATORY_AUTHORITY_WEIGHT = {
+    "APRA": 10, "ASIC": 9, "OAIC": 8, "ATO": 8,
+    "ACCC": 7, "AUSTRAC": 9, "AHPRA": 7,
+}
+
+
+def compute_storm_severity(storm: dict) -> int:
+    """Compute composite storm severity (1-10)."""
+    # Base from regulatory authority
+    reg_body = storm.get("regulatory_body") or ""
+    authority_score = REGULATORY_AUTHORITY_WEIGHT.get(reg_body.upper(), 5)
+
+    # Deadline proximity (closer = higher severity)
+    deadline_score = 5
+    deadline = storm.get("compliance_deadline")
+    if deadline:
+        if isinstance(deadline, str):
+            deadline = date.fromisoformat(deadline)
+        days_until = (deadline - date.today()).days
+        if days_until <= 30:
+            deadline_score = 10
+        elif days_until <= 90:
+            deadline_score = 7
+        elif days_until <= 180:
+            deadline_score = 4
+        else:
+            deadline_score = 2
+
+    # Penalty size
+    penalty = storm.get("penalty_amount", 0) or 0
+    if penalty >= 10_000_000:
+        penalty_score = 10
+    elif penalty >= 1_000_000:
+        penalty_score = 7
+    elif penalty >= 100_000:
+        penalty_score = 4
+    else:
+        penalty_score = 2
+
+    # Companies affected
+    affected = storm.get("companies_affected", 0) or 0
+    if affected >= 1000:
+        affected_score = 10
+    elif affected >= 100:
+        affected_score = 7
+    elif affected >= 10:
+        affected_score = 4
+    else:
+        affected_score = 2
+
+    composite = (
+        authority_score * 0.3
+        + deadline_score * 0.3
+        + penalty_score * 0.2
+        + affected_score * 0.2
+    )
+    return max(1, min(10, round(composite)))
+
+
+@app.get(f"{PREFIX}/api/storms")
+async def list_storms():
+    """List all storms with severity scoring."""
+    rows = await db_fetch("SELECT * FROM storm_events ORDER BY severity DESC, detected_at DESC")
+    storms = []
+    for r in rows:
+        d = row_to_dict(r)
+        d["computed_severity"] = compute_storm_severity(d)
+        if r["window_closes"]:
+            delta = r["window_closes"] - date.today()
+            d["days_remaining"] = max(delta.days, 0)
+        else:
+            d["days_remaining"] = None
+        storms.append(d)
+    return {"storms": storms, "count": len(storms)}
+
+
+@app.post(f"{PREFIX}/api/storms")
+async def create_storm(request: Request):
+    """Manually create a storm event."""
+    body = await request.json()
+    name = body.get("event_name", "").strip()
+    if not name:
+        raise HTTPException(400, {"error": "event_name is required"})
+
+    industry = body.get("industry", "").strip() or None
+    severity = body.get("severity", 5)
+    if severity < 1 or severity > 10:
+        raise HTTPException(400, {"error": "severity must be 1-10"})
+    description = body.get("description", "").strip() or None
+    regulatory_body = body.get("regulatory_body", "").strip() or None
+    compliance_deadline = body.get("compliance_deadline")
+    penalty_amount = body.get("penalty_amount", 0) or 0
+    companies_affected = body.get("companies_affected", 0) or 0
+    window_closes = body.get("window_closes")
+
+    row = await db_fetchrow(
+        "INSERT INTO storm_events (event_name, industry, severity, description, regulatory_body, "
+        "compliance_deadline, penalty_amount, companies_affected, window_closes) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
+        name, industry, severity, description, regulatory_body,
+        compliance_deadline, penalty_amount, companies_affected, window_closes,
+    )
+    return {"id": row["id"], "event_name": name, "severity": severity, "created": True}
+
+
+@app.get(f"{PREFIX}/api/storms/{{storm_id}}/leads")
+async def storm_leads(storm_id: int):
+    """Return leads affected by a specific storm."""
+    storm = await db_fetchrow("SELECT id, event_name, severity, industry FROM storm_events WHERE id = $1", storm_id)
+    if not storm:
+        raise HTTPException(404, {"error": "Storm not found"})
+
+    # Direct FK match
+    direct = await db_fetch(
+        "SELECT id, company_name, industry, momentum_score, status "
+        "FROM leads WHERE storm_id = $1 ORDER BY momentum_score DESC",
+        storm_id,
+    )
+    # Also match by industry if storm has one
+    industry_match = []
+    if storm["industry"]:
+        industry_match = await db_fetch(
+            "SELECT id, company_name, industry, momentum_score, status "
+            "FROM leads WHERE industry = $1 AND storm_id IS DISTINCT FROM $2 "
+            "AND status NOT IN ('archived', 'won', 'lost') "
+            "ORDER BY momentum_score DESC",
+            storm["industry"], storm_id,
+        )
+
+    return {
+        "storm": row_to_dict(storm),
+        "directly_linked": rows_to_list(direct),
+        "industry_match": rows_to_list(industry_match),
+        "total_affected": len(direct) + len(industry_match),
+    }
+
+
+# ── 3D: Opportunity Saturation Index ─────────────────────────────────────────
+
+@app.post(f"{PREFIX}/api/leads/{{lead_id}}/saturation")
+async def update_saturation(lead_id: int, request: Request):
+    """Update a lead's saturation index based on signal source analysis."""
+    lead = await db_fetchrow("SELECT id FROM leads WHERE id = $1", lead_id)
+    if not lead:
+        raise HTTPException(404, {"error": "Lead not found"})
+    body = await request.json()
+    score = body.get("saturation_index")
+    if score is None or not (0 <= score <= 1):
+        raise HTTPException(400, {"error": "saturation_index must be 0-1"})
+    await db_execute("UPDATE leads SET saturation_index = $2 WHERE id = $1", lead_id, score)
+
+    # Recalculate momentum if high saturation
+    modifier_applied = score > 0.7
+    return {
+        "lead_id": lead_id,
+        "saturation_index": score,
+        "saturation_level": "high" if score >= 0.7 else ("medium" if score >= 0.3 else "low"),
+        "momentum_penalty_applied": modifier_applied,
+    }
+
+
+@app.post(f"{PREFIX}/api/leads/{{lead_id}}/first-seen")
+async def update_first_seen(lead_id: int, request: Request):
+    """Update first-seen tracking for a lead."""
+    lead = await db_fetchrow("SELECT id FROM leads WHERE id = $1", lead_id)
+    if not lead:
+        raise HTTPException(404, {"error": "Lead not found"})
+    body = await request.json()
+    competitor_seen_count = body.get("competitor_seen_count", 0)
+    if competitor_seen_count < 0:
+        raise HTTPException(400, {"error": "competitor_seen_count must be >= 0"})
+
+    await db_execute(
+        "INSERT INTO lead_first_seen (lead_id, competitor_seen_count) VALUES ($1, $2) "
+        "ON CONFLICT (lead_id) DO UPDATE SET competitor_seen_count = $2",
+        lead_id, competitor_seen_count,
+    )
+    is_first_mover = competitor_seen_count == 0
+    await db_execute("UPDATE leads SET first_mover = $2 WHERE id = $1", lead_id, is_first_mover)
+    return {
+        "lead_id": lead_id,
+        "competitor_seen_count": competitor_seen_count,
+        "first_mover": is_first_mover,
+        "momentum_modifier": "+20%" if is_first_mover else "none",
+    }
 
 
 # ── Scan ──────────────────────────────────────────────────────────────────────
