@@ -24,6 +24,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
+import httpx
 
 VERSION = "3.0.0"
 APP_NAME = "signal-hunter"
@@ -34,6 +35,7 @@ DB_URL = "postgresql://amtl:amtl@localhost:5433/signalhunter"
 
 _start_time = time.monotonic()
 _pool: Optional[asyncpg.Pool] = None
+_today_cache: dict = {"data": None, "expires": 0.0}
 
 app = FastAPI(title=DISPLAY_NAME, version=VERSION, docs_url=f"{PREFIX}/docs", redoc_url=None)
 
@@ -99,11 +101,95 @@ def json_serial(obj):
     raise TypeError(f"Type {type(obj)} not serializable")
 
 
+# ── Integration Helpers ──────────────────────────────────────────────────────
+
+async def notify_peterman(event_type: str, payload: dict):
+    """Post event to Peterman Intelligence Loop. Logs to peterman_queue regardless."""
+    sent = False
+    try:
+        url = ("http://localhost:5008/peterman/api/content/brief" if event_type == "storm_brief"
+               else "http://localhost:5008/peterman/api/signal/won-deal")
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.post(url, json={"event_type": event_type, "payload": payload})
+            sent = resp.status_code < 400
+    except Exception:
+        pass
+    try:
+        payload_json = json.dumps(payload, default=json_serial)
+        status = "sent" if sent else "pending"
+        if sent:
+            await db_execute(
+                "INSERT INTO peterman_queue (event_type, payload, status, sent_at) VALUES ($1, $2::jsonb, $3, NOW())",
+                event_type, payload_json, status,
+            )
+        else:
+            await db_execute(
+                "INSERT INTO peterman_queue (event_type, payload, status) VALUES ($1, $2::jsonb, $3)",
+                event_type, payload_json, status,
+            )
+    except Exception:
+        pass
+
+
+async def ntfy_push(message: str):
+    """Push notification via ntfy. Fire-and-forget, catches all errors."""
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(
+                "http://localhost:8090/signal-hunter-alerts",
+                content=message,
+                headers={"Content-Type": "text/plain"},
+            )
+    except Exception:
+        pass
+
+
+async def check_dark_web_tos(user_id: int = 1) -> bool:
+    """Check if user has accepted Dark Web module TOS."""
+    row = await db_fetchrow(
+        "SELECT accepted FROM dark_web_tos WHERE user_id = $1 ORDER BY id DESC LIMIT 1", user_id
+    )
+    return bool(row and row["accepted"])
+
+
 # ── Startup / Shutdown ────────────────────────────────────────────────────────
 
 @app.on_event("startup")
 async def startup():
-    await get_pool()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS peterman_queue (
+                id SERIAL PRIMARY KEY,
+                event_type TEXT NOT NULL,
+                payload JSONB,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                sent_at TIMESTAMPTZ
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ripple_queue (
+                id SERIAL PRIMARY KEY,
+                lead_id INT REFERENCES leads(id),
+                pushed_at TIMESTAMPTZ DEFAULT NOW(),
+                status TEXT DEFAULT 'pending',
+                ripple_contact_id TEXT,
+                notes TEXT
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS dark_web_signals (
+                id SERIAL PRIMARY KEY,
+                lead_id INT REFERENCES leads(id),
+                domain TEXT,
+                breach_detected BOOLEAN DEFAULT FALSE,
+                breach_count INT DEFAULT 0,
+                data_classes JSONB,
+                checked_at TIMESTAMPTZ DEFAULT NOW(),
+                expires_at TIMESTAMPTZ
+            )
+        """)
 
 
 @app.on_event("shutdown")
@@ -466,6 +552,11 @@ async def list_leads(
 
             leads.sort(key=lambda x: x.get("pattern_match_score", 0), reverse=True)
 
+            # Phase 4D: ntfy hook — win pattern match alerts
+            for ld in leads[:3]:
+                if ld.get("pattern_match_score", 0) > 80:
+                    await ntfy_push(f"WIN PATTERN MATCH: {ld['company_name']} (score {ld['pattern_match_score']})")
+
     return {"leads": leads, "count": len(leads)}
 
 
@@ -536,6 +627,25 @@ async def get_lead(lead_id: int):
     lead_dict["signals"] = rows_to_list(signals)
     lead_dict["buying_committee"] = rows_to_list(committee)
     lead_dict["velocity_history"] = rows_to_list(velocity)
+
+    # Phase 5: Dark web intelligence in lead response
+    dw = await db_fetchrow(
+        "SELECT breach_detected, breach_count, data_classes, checked_at "
+        "FROM dark_web_signals WHERE lead_id = $1 AND breach_detected = TRUE "
+        "ORDER BY checked_at DESC LIMIT 1",
+        lead_id,
+    )
+    lead_dict["dark_web_signal"] = bool(lead_dict.get("dark_web_signal"))
+    if dw:
+        bc = dw["breach_count"] or 0
+        lead_dict["dark_web_summary"] = f"Company credentials circulating — {bc} breach(es) detected"
+    else:
+        lead_dict["dark_web_summary"] = None
+
+    # Phase 4D: ntfy hook — hot lead notification
+    if (lead_dict.get("momentum_score") or 0) > 85:
+        await ntfy_push(f"HOT LEAD: {lead_dict['company_name']} (momentum {lead_dict['momentum_score']})")
+
     return lead_dict
 
 
@@ -630,7 +740,7 @@ async def record_outcome(lead_id: int, request: Request):
         )
         sequence = [{"type": s["signal_type"], "source": s["source"]} for s in signals]
         lead_row = await db_fetchrow(
-            "SELECT industry, company_size, pain_fingerprint, narrative_stage FROM leads WHERE id = $1",
+            "SELECT company_name, industry, company_size, pain_fingerprint, narrative_stage FROM leads WHERE id = $1",
             lead_id,
         )
         await db_execute(
@@ -639,6 +749,16 @@ async def record_outcome(lead_id: int, request: Request):
             lead_id, json.dumps(sequence), lead_row["industry"] if lead_row else None,
             lead_row["company_size"] if lead_row else None, value,
         )
+
+    # Phase 4 hook — Peterman for won deals
+    if outcome == "won" and lead_row:
+        await notify_peterman("won_deal", {
+            "company": lead_row["company_name"],
+            "industry": lead_row["industry"],
+            "pain_fingerprint": lead_row["pain_fingerprint"],
+            "signal_sequence": sequence if outcome == "won" else [],
+            "deal_value": value,
+        })
 
     return {"status": outcome, "lead_id": lead_id, "sales_cycle_days": days}
 
@@ -721,6 +841,11 @@ async def get_radar(industry: Optional[str] = None):
 @app.get(f"{PREFIX}/api/today")
 async def todays_top5():
     """Return today's top leads ranked by Momentum Score, with fleet summary."""
+    # Phase 4B: 30-min cache
+    now_ts = time.monotonic()
+    if _today_cache["data"] and now_ts < _today_cache["expires"]:
+        return _today_cache["data"]
+
     rows = await db_fetch(
         "SELECT id, company_name, industry, momentum_score, fit_score, intent_velocity, "
         "velocity_trend, buying_window, pain_fingerprint, communication_style, outreach_a, "
@@ -761,13 +886,93 @@ async def todays_top5():
     storms = await db_fetch("SELECT COUNT(*) as cnt FROM storm_events WHERE active = TRUE")
     active_storms = storms[0]["cnt"] if storms else 0
 
-    return {
+    # Phase 4B: Enhanced ELAINE morning brief fields
+    # Storm alerts — severity >= 6 with time_to_close
+    storm_alert_rows = await db_fetch(
+        "SELECT id, event_name, severity, industry, window_closes "
+        "FROM storm_events WHERE active = TRUE AND severity >= 6 ORDER BY severity DESC"
+    )
+    storm_alerts = []
+    for sa in storm_alert_rows:
+        sad = row_to_dict(sa)
+        if sa["window_closes"]:
+            sad["time_to_close"] = max((sa["window_closes"] - date.today()).days, 0)
+        else:
+            sad["time_to_close"] = None
+        storm_alerts.append(sad)
+
+    # First mover opportunities
+    fm_rows = await db_fetch(
+        "SELECT l.id, l.company_name, l.industry, l.momentum_score "
+        "FROM leads l JOIN lead_first_seen f ON l.id = f.lead_id "
+        "WHERE f.competitor_seen_count = 0 AND l.status NOT IN ('archived', 'won', 'lost') "
+        "ORDER BY l.momentum_score DESC LIMIT 10"
+    )
+    first_mover_opportunities = rows_to_list(fm_rows)
+
+    # Competitor alerts — displacement_score > 50
+    comp_rows = await db_fetch("SELECT id, name FROM competitors")
+    cutoff_30d = datetime.now(timezone.utc) - timedelta(days=30)
+    competitor_alerts = []
+    for c in comp_rows:
+        events = await db_fetch(
+            "SELECT severity FROM competitor_signals WHERE competitor_id = $1 AND detected_at >= $2",
+            c["id"], cutoff_30d,
+        )
+        score = compute_displacement_score(rows_to_list(events))
+        if score > 50:
+            competitor_alerts.append({"name": c["name"], "displacement_score": score})
+    competitor_alerts.sort(key=lambda x: x["displacement_score"], reverse=True)
+
+    # Win pattern matches
+    templates = await db_fetch("SELECT signal_sequence, industry FROM win_templates")
+    win_pattern_matches = []
+    if templates:
+        win_industries = {t["industry"] for t in templates if t["industry"]}
+        win_signal_types = set()
+        for t in templates:
+            seq = t["signal_sequence"]
+            if isinstance(seq, str):
+                try:
+                    seq = json.loads(seq)
+                except Exception:
+                    seq = []
+            if isinstance(seq, list):
+                for s in seq:
+                    if isinstance(s, dict):
+                        win_signal_types.add(s.get("type", ""))
+        check_leads = await db_fetch(
+            "SELECT id, company_name, industry, momentum_score FROM leads "
+            "WHERE status NOT IN ('archived', 'won', 'lost') ORDER BY momentum_score DESC LIMIT 20"
+        )
+        for cl in check_leads:
+            cld = row_to_dict(cl)
+            ms = 0
+            if cld.get("industry") in win_industries:
+                ms += 30
+            lsigs = await db_fetch("SELECT signal_type FROM signals WHERE lead_id = $1", cld["id"])
+            overlap = {s["signal_type"] for s in lsigs} & win_signal_types
+            if overlap:
+                ms += min(len(overlap) * 15, 70)
+            if ms > 0:
+                cld["match_score"] = ms
+                win_pattern_matches.append(cld)
+        win_pattern_matches.sort(key=lambda x: x.get("match_score", 0), reverse=True)
+
+    result = {
         "date": date.today().isoformat(),
         "top_leads": top_leads,
         "total_leads_today": total_leads,
         "hot_leads": hot_leads,
         "active_storms": active_storms,
+        "storm_alerts": storm_alerts,
+        "first_mover_opportunities": first_mover_opportunities,
+        "competitor_alerts": competitor_alerts,
+        "win_pattern_matches": win_pattern_matches,
     }
+    _today_cache["data"] = result
+    _today_cache["expires"] = time.monotonic() + 1800
+    return result
 
 
 # ── Storms ────────────────────────────────────────────────────────────────────
@@ -1205,6 +1410,12 @@ async def competitor_leaderboard():
             "latest_event": event_list[0]["title"] if event_list else None,
         })
     board.sort(key=lambda x: x["displacement_score"], reverse=True)
+
+    # Phase 4D: ntfy hook — competitor vulnerability alerts
+    for b in board[:3]:
+        if b["displacement_score"] > 60:
+            await ntfy_push(f"COMPETITOR VULNERABILITY: {b['name']} (displacement {b['displacement_score']})")
+
     return {"leaderboard": board, "count": len(board), "window_days": 30}
 
 
@@ -1400,6 +1611,16 @@ async def create_storm(request: Request):
         name, industry, severity, description, regulatory_body,
         compliance_deadline, penalty_amount, companies_affected, window_closes,
     )
+    # Phase 4 hooks — Peterman + ntfy
+    if severity >= 7:
+        await notify_peterman("storm_brief", {
+            "storm_name": name, "affected_industry": industry,
+            "severity": severity, "window_days": None,
+            "key_pain_language": description,
+        })
+    if severity >= 8:
+        await ntfy_push(f"STORM ALERT: {name} (severity {severity}) — {industry or 'All industries'}")
+
     return {"id": row["id"], "event_name": name, "severity": severity, "created": True}
 
 
@@ -1477,6 +1698,11 @@ async def update_first_seen(lead_id: int, request: Request):
     )
     is_first_mover = competitor_seen_count == 0
     await db_execute("UPDATE leads SET first_mover = $2 WHERE id = $1", lead_id, is_first_mover)
+
+    # Phase 4D: ntfy hook — first mover alert
+    if is_first_mover:
+        await ntfy_push(f"FIRST MOVER: Lead {lead_id} — no competitor has seen this lead yet")
+
     return {
         "lead_id": lead_id,
         "competitor_seen_count": competitor_seen_count,
@@ -1587,6 +1813,186 @@ async def get_icp():
     if not row:
         return {"icp": None}
     return {"icp": row_to_dict(row)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 4 — ECOSYSTEM INTEGRATION
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+# ── 4A: Peterman Intelligence Loop ──────────────────────────────────────────
+
+@app.get(f"{PREFIX}/api/peterman/queue")
+async def peterman_queue():
+    """Return pending Peterman queue items."""
+    rows = await db_fetch(
+        "SELECT * FROM peterman_queue WHERE status = 'pending' ORDER BY created_at DESC"
+    )
+    return {"queue": rows_to_list(rows), "count": len(rows)}
+
+
+@app.get(f"{PREFIX}/api/peterman/pending-briefs")
+async def peterman_pending_briefs():
+    """Return storm-generated briefs pending delivery to Peterman."""
+    rows = await db_fetch(
+        "SELECT * FROM peterman_queue WHERE event_type = 'storm_brief' ORDER BY created_at DESC"
+    )
+    return {"briefs": rows_to_list(rows), "count": len(rows)}
+
+
+# ── 4C: Ripple Loop ────────────────────────────────────────────────────────
+
+@app.post(f"{PREFIX}/api/ripple/push-lead")
+async def ripple_push_lead(request: Request):
+    """Push a lead to the Ripple queue for relationship-based outreach."""
+    body = await request.json()
+    lead_id = body.get("lead_id")
+    if not lead_id:
+        raise HTTPException(400, {"error": "lead_id is required"})
+    lead = await db_fetchrow("SELECT id FROM leads WHERE id = $1", lead_id)
+    if not lead:
+        raise HTTPException(404, {"error": "Lead not found"})
+    notes = body.get("notes", "")
+    row = await db_fetchrow(
+        "INSERT INTO ripple_queue (lead_id, notes) VALUES ($1, $2) RETURNING id",
+        lead_id, notes,
+    )
+    return {"id": row["id"], "lead_id": lead_id, "status": "pending", "pushed": True}
+
+
+@app.get(f"{PREFIX}/api/ripple/queue")
+async def ripple_queue():
+    """Return all pending leads in the Ripple queue."""
+    rows = await db_fetch(
+        "SELECT rq.*, l.company_name, l.industry, l.momentum_score "
+        "FROM ripple_queue rq LEFT JOIN leads l ON rq.lead_id = l.id "
+        "WHERE rq.status = 'pending' ORDER BY rq.pushed_at DESC"
+    )
+    return {"queue": rows_to_list(rows), "count": len(rows)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 5 — DARK WEB INTELLIGENCE
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+@app.post(f"{PREFIX}/api/darkweb/check-domain")
+async def check_domain(request: Request):
+    """Check a domain against breach databases. Stub — returns realistic structure."""
+    if not await check_dark_web_tos():
+        raise HTTPException(403, {"error": "Dark Web TOS not accepted. Accept at /signal/api/privacy/dark-web-tos"})
+
+    body = await request.json()
+    domain = body.get("domain", "").strip().lower()
+    if not domain:
+        raise HTTPException(400, {"error": "domain is required"})
+
+    # Stub: generate realistic breach response based on domain hash
+    domain_hash = int(hashlib.md5(domain.encode()).hexdigest()[:8], 16)
+    breach_detected = domain_hash % 3 != 0  # ~67% chance of breach
+    breach_count = (domain_hash % 5) + 1 if breach_detected else 0
+    data_classes = []
+    all_classes = ["Email addresses", "Passwords", "Usernames", "IP addresses",
+                   "Phone numbers", "Physical addresses", "Job titles", "Dates of birth"]
+    if breach_detected:
+        for i, cls in enumerate(all_classes):
+            if (domain_hash >> i) & 1:
+                data_classes.append(cls)
+        if not data_classes:
+            data_classes = ["Email addresses", "Passwords"]
+
+    expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+
+    # Store result
+    row = await db_fetchrow(
+        "INSERT INTO dark_web_signals (domain, breach_detected, breach_count, data_classes, expires_at) "
+        "VALUES ($1, $2, $3, $4::jsonb, $5) RETURNING id",
+        domain, breach_detected, breach_count, json.dumps(data_classes), expires_at,
+    )
+
+    # Link to leads if matching domain
+    leads = await db_fetch(
+        "SELECT id FROM leads WHERE LOWER(company_name) LIKE $1",
+        f"%{domain.split('.')[0]}%",
+    )
+    for ld in leads:
+        await db_execute("UPDATE leads SET dark_web_signal = TRUE WHERE id = $1", ld["id"])
+        await db_execute(
+            "UPDATE dark_web_signals SET lead_id = $2 WHERE id = $1", row["id"], ld["id"],
+        )
+
+    return {
+        "domain": domain,
+        "breach_detected": breach_detected,
+        "breach_count": breach_count,
+        "data_classes": data_classes,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": expires_at.isoformat(),
+        "signal_id": row["id"],
+    }
+
+
+@app.post(f"{PREFIX}/api/leads/{{lead_id}}/generate-darkweb-outreach")
+async def generate_darkweb_outreach(lead_id: int):
+    """Generate Draft D outreach template for dark web angle leads. Requires TOS."""
+    if not await check_dark_web_tos():
+        raise HTTPException(403, {"error": "Dark Web TOS not accepted"})
+
+    lead = await db_fetchrow(
+        "SELECT id, company_name, industry, dark_web_signal FROM leads WHERE id = $1", lead_id
+    )
+    if not lead:
+        raise HTTPException(404, {"error": "Lead not found"})
+
+    # Get dark web signals for this lead
+    dw_signals = await db_fetch(
+        "SELECT domain, breach_count, data_classes FROM dark_web_signals "
+        "WHERE lead_id = $1 AND breach_detected = TRUE ORDER BY checked_at DESC LIMIT 1",
+        lead_id,
+    )
+
+    company = lead["company_name"]
+    industry = lead["industry"] or "your industry"
+
+    if dw_signals:
+        dw = row_to_dict(dw_signals[0])
+        breach_count = dw.get("breach_count", 0)
+        classes = dw.get("data_classes", [])
+        if isinstance(classes, str):
+            try:
+                classes = json.loads(classes)
+            except Exception:
+                classes = []
+        class_text = ", ".join(classes[:3]) if classes else "sensitive data"
+        outreach = (
+            f"Subject: Protecting {company} — Credential Exposure Alert\n\n"
+            f"Hi,\n\n"
+            f"While conducting research into {industry} threat exposure, we identified that "
+            f"{company} credentials appear in {breach_count} known breach dataset(s). "
+            f"The exposed data includes {class_text}.\n\n"
+            f"This doesn't necessarily mean an active compromise, but it does represent "
+            f"a quantifiable risk that's worth addressing before it becomes a board-level issue.\n\n"
+            f"We've helped similar {industry} organisations close this gap. Would 15 minutes "
+            f"this week work to walk through what we found?\n\n"
+            f"Best regards"
+        )
+    else:
+        outreach = (
+            f"Subject: {company} — Proactive Security Posture Review\n\n"
+            f"Hi,\n\n"
+            f"We've been monitoring threat intelligence feeds relevant to {industry} and "
+            f"identified indicators that warrant a closer look for {company}.\n\n"
+            f"Would a brief call this week work to share what we've found?\n\n"
+            f"Best regards"
+        )
+
+    return {
+        "lead_id": lead_id,
+        "company": company,
+        "draft_type": "D",
+        "outreach_text": outreach,
+        "dark_web_signal": bool(lead["dark_web_signal"]),
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════

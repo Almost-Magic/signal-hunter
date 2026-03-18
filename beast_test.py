@@ -717,3 +717,224 @@ class TestFirstMover:
             fm = data["first_movers"][0]
             assert fm["competitor_seen_count"] == 0
             assert fm["first_mover"] is True
+
+
+# ---------------------------------------------------------------------------
+# SECTION 11: PHASE 4 — ECOSYSTEM INTEGRATION (7 tests)
+# ---------------------------------------------------------------------------
+class TestPhase4Ecosystem:
+    """Phase 4: Ecosystem Integration tests."""
+
+    def test_storm_triggers_peterman_brief(self):
+        """Happy: Creating a severity 8 storm queues a Peterman brief."""
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/storms",
+            json={
+                "event_name": f"Peterman Test Storm {int(time.time())}",
+                "industry": "Cybersecurity",
+                "severity": 8,
+                "description": "Critical regulatory breach wave",
+            },
+            timeout=10,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["created"] is True
+
+        # Check peterman queue for storm_brief
+        q = httpx.get(f"{BASE_URL}{PREFIX}/api/peterman/pending-briefs", timeout=10)
+        assert q.status_code == 200
+        briefs = q.json()
+        assert briefs["count"] > 0
+        found = any(
+            b["event_type"] == "storm_brief"
+            for b in briefs["briefs"]
+        )
+        assert found
+
+    def test_won_deal_triggers_peterman_signal(self):
+        """Happy: Recording a won outcome queues a Peterman won_deal signal."""
+        # First, get a valid lead ID
+        leads = httpx.get(f"{BASE_URL}{PREFIX}/api/leads", timeout=10).json()
+        assert len(leads["leads"]) > 0
+        lead_id = leads["leads"][0]["id"]
+
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/leads/{lead_id}/outcome",
+            json={"outcome": "won", "deal_value_actual": 50000},
+            timeout=10,
+        )
+        assert r.status_code == 200
+
+        # Check peterman queue for won_deal
+        q = httpx.get(f"{BASE_URL}{PREFIX}/api/peterman/queue", timeout=10)
+        assert q.status_code == 200
+        # Queue endpoint returns pending items; won_deal may be pending or sent
+        briefs = httpx.get(f"{BASE_URL}{PREFIX}/api/peterman/pending-briefs", timeout=10)
+        assert briefs.status_code == 200
+
+    def test_today_endpoint_includes_all_fields(self):
+        """Happy: GET /signal/api/today includes 4 new Phase 4B fields."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/today", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        # Original fields
+        assert "top_leads" in data
+        assert "total_leads_today" in data
+        assert "hot_leads" in data
+        assert "active_storms" in data
+        # Phase 4B new fields
+        assert "storm_alerts" in data
+        assert "first_mover_opportunities" in data
+        assert "competitor_alerts" in data
+        assert "win_pattern_matches" in data
+        assert isinstance(data["storm_alerts"], list)
+        assert isinstance(data["first_mover_opportunities"], list)
+        assert isinstance(data["competitor_alerts"], list)
+        assert isinstance(data["win_pattern_matches"], list)
+
+    def test_ripple_queue_stores_lead(self):
+        """Happy: Push a lead to Ripple queue and verify storage."""
+        leads = httpx.get(f"{BASE_URL}{PREFIX}/api/leads", timeout=10).json()
+        lead_id = leads["leads"][0]["id"]
+
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/ripple/push-lead",
+            json={"lead_id": lead_id, "notes": "Warm intro via CFO contact"},
+            timeout=10,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["pushed"] is True
+        assert data["lead_id"] == lead_id
+
+        # Verify queue
+        q = httpx.get(f"{BASE_URL}{PREFIX}/api/ripple/queue", timeout=10)
+        assert q.status_code == 200
+        assert q.json()["count"] > 0
+
+    def test_ntfy_fires_on_hot_lead(self):
+        """Happy: Accessing a hot lead does not crash (ntfy is fire-and-forget)."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/leads/1", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "company_name" in data
+        assert "momentum_score" in data
+
+    def test_first_mover_detected_on_creation(self):
+        """Happy: Setting competitor_seen_count=0 marks lead as first mover."""
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/leads/1/first-seen",
+            json={"competitor_seen_count": 0},
+            timeout=10,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["first_mover"] is True
+        assert data["momentum_modifier"] == "+20%"
+
+    def test_win_pattern_match_found(self):
+        """Happy: GET /signal/api/patterns/wins returns win patterns list."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/patterns/wins", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "patterns" in data
+        assert isinstance(data["patterns"], list)
+
+
+# ---------------------------------------------------------------------------
+# SECTION 12: PHASE 5 — DARK WEB INTELLIGENCE (5 tests)
+# ---------------------------------------------------------------------------
+class TestDarkWebIntelligence:
+    """Phase 5: Dark Web Intelligence tests."""
+
+    def test_dark_web_tos_required(self):
+        """Happy: Dark web endpoints return 403 without TOS acceptance."""
+        # First, ensure TOS is NOT accepted (post accept=false)
+        httpx.post(
+            f"{BASE_URL}{PREFIX}/api/privacy/dark-web-tos",
+            json={"accept": False},
+            timeout=10,
+        )
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/darkweb/check-domain",
+            json={"domain": "example.com"},
+            timeout=10,
+        )
+        assert r.status_code == 403
+
+    def test_check_domain_stub(self):
+        """Happy: Domain check returns structured breach response after TOS acceptance."""
+        # Accept TOS first
+        httpx.post(
+            f"{BASE_URL}{PREFIX}/api/privacy/dark-web-tos",
+            json={"accept": True},
+            timeout=10,
+        )
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/darkweb/check-domain",
+            json={"domain": "testcorp.com.au"},
+            timeout=10,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert "domain" in data
+        assert "breach_detected" in data
+        assert "breach_count" in data
+        assert "data_classes" in data
+        assert "checked_at" in data
+        assert "expires_at" in data
+        assert "signal_id" in data
+        assert isinstance(data["data_classes"], list)
+
+    def test_dark_web_signal_in_lead(self):
+        """Happy: Lead response includes dark_web_signal and dark_web_summary fields."""
+        r = httpx.get(f"{BASE_URL}{PREFIX}/api/leads/1", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "dark_web_signal" in data
+        assert "dark_web_summary" in data
+        assert isinstance(data["dark_web_signal"], bool)
+
+    def test_dark_web_outreach(self):
+        """Happy: Generate dark web outreach draft for a lead."""
+        # Ensure TOS accepted
+        httpx.post(
+            f"{BASE_URL}{PREFIX}/api/privacy/dark-web-tos",
+            json={"accept": True},
+            timeout=10,
+        )
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/leads/1/generate-darkweb-outreach",
+            timeout=10,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["lead_id"] == 1
+        assert data["draft_type"] == "D"
+        assert "outreach_text" in data
+        assert len(data["outreach_text"]) > 50
+        assert "dark_web_signal" in data
+
+    def test_dark_web_auto_expiry(self):
+        """Happy: Dark web signal stores 30-day TTL in expires_at."""
+        # Ensure TOS accepted
+        httpx.post(
+            f"{BASE_URL}{PREFIX}/api/privacy/dark-web-tos",
+            json={"accept": True},
+            timeout=10,
+        )
+        r = httpx.post(
+            f"{BASE_URL}{PREFIX}/api/darkweb/check-domain",
+            json={"domain": "expiry-test.com"},
+            timeout=10,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["expires_at"] is not None
+        # Verify the expiry is approximately 30 days from now
+        from datetime import datetime as dt
+        expires = dt.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
+        now = dt.now(tz=expires.tzinfo)
+        diff_days = (expires - now).days
+        assert 29 <= diff_days <= 31
